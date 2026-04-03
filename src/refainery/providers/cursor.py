@@ -256,6 +256,9 @@ class CursorProvider:
         invocations: list[ToolInvocation] = []
 
         try:
+            # Extract active rules for this conversation from messageRequestContext
+            skill_context = self._extract_skill_context(conn, conversation.conversation_id)
+
             # Fetch all bubbles ordered by ROWID (insertion order)
             # Reference: cursor.rs load_bubbles() lines 190-213
             prefix = f"bubbleId:{conversation.conversation_id}:"
@@ -307,7 +310,7 @@ class CursorProvider:
                     output=output,
                     success=_check_success(output),
                     next_action=next_action,
-                    skill_context=None,  # Cursor doesn't have the Skill tool concept
+                    skill_context=skill_context,
                     conversation_summary=None,
                 )
                 invocations.append(inv)
@@ -318,6 +321,59 @@ class CursorProvider:
             conn.close()
 
         return invocations
+
+    @staticmethod
+    def _extract_skill_context(conn: sqlite3.Connection, conv_id: str) -> str | None:
+        """Extract active rule/skill names from messageRequestContext entries.
+
+        Cursor stores active rules in messageRequestContext:{conv_id}:{msg_uuid}
+        entries. The cursorRules field is an array of JSON strings, each containing
+        a {name, description, body} object.
+
+        Returns the primary skill name (excluding base rules), or None.
+        """
+        try:
+            rows = conn.execute(
+                "SELECT CAST(value AS TEXT) FROM cursorDiskKV "
+                "WHERE key >= ? AND key < ? "
+                "AND json_array_length(json_extract(CAST(value AS TEXT), '$.cursorRules')) > 0",
+                (f"messageRequestContext:{conv_id}:", f"messageRequestContext:{conv_id};"),
+            ).fetchall()
+        except sqlite3.Error:
+            return None
+
+        if not rows:
+            return None
+
+        rule_names: set[str] = set()
+        for (val,) in rows:
+            try:
+                data = json.loads(val)
+            except (json.JSONDecodeError, TypeError):
+                continue
+            for r in data.get("cursorRules", []):
+                name = None
+                if isinstance(r, str):
+                    try:
+                        parsed = json.loads(r)
+                        name = parsed.get("name")
+                    except (json.JSONDecodeError, TypeError):
+                        pass
+                elif isinstance(r, dict):
+                    name = r.get("name")
+                if name:
+                    rule_names.add(name)
+
+        # Filter out base/generic rules, keep skill-specific ones
+        skill_names = {n for n in rule_names if not n.startswith("000-")}
+
+        if not skill_names:
+            return None
+
+        # Return the most specific skill (if multiple, join them)
+        if len(skill_names) == 1:
+            return skill_names.pop()
+        return ",".join(sorted(skill_names))
 
     def _build_workspace_map(self) -> dict[str, dict[str, Any]]:
         """Build a map from conversation ID -> workspace info.

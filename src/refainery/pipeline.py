@@ -19,42 +19,81 @@ def _resume_session(session_id: str) -> None:
     os.execvp("claude", ["claude", "--resume", session_id])
 
 
-def _interactive_session_picker(sessions: list[dict], console: Console) -> None:
-    """Show an interactive menu of sessions. Enter resumes in Claude Code."""
+def _interactive_session_picker(sessions: list[dict], console: Console, store: Store | None = None) -> None:
+    """Show an interactive menu of sessions.
+
+    Enter resumes in Claude Code. 'd' toggles resolved status (requires store).
+    """
     from simple_term_menu import TerminalMenu
 
-    # Build a lookup from entry string -> index
-    entries = []
-    entry_to_idx: dict[str, int] = {}
-    for i, s in enumerate(sessions):
-        label = f"{s['skill']}/{s['tool']} ({s['failure_type']}, {s['frequency']}×)"
-        entries.append(label)
-        entry_to_idx[label] = i
+    def _format_timespan(s: dict) -> str:
+        first = s.get("first_seen", "")
+        last = s.get("last_seen", "")
+        if not first or not last:
+            return ""
+        first_date = first[:10]
+        last_date = last[:10]
+        if first_date == last_date:
+            return first_date
+        return f"{first_date} → {last_date}"
+
+    def _build_entries() -> tuple[list[str], dict[str, int]]:
+        entries = []
+        lookup: dict[str, int] = {}
+        for i, s in enumerate(sessions):
+            resolved = "✓ " if s.get("resolved") else "  "
+            timespan = _format_timespan(s)
+            ts_suffix = f"  [{timespan}]" if timespan else ""
+            label = f"{resolved}{s['skill']}/{s['tool']} ({s['failure_type']}, {s['frequency']}×){ts_suffix}"
+            entries.append(label)
+            lookup[label] = i
+        return entries, lookup
+
+    entries, entry_to_idx = _build_entries()
 
     def _preview(entry: str) -> str:
         idx = entry_to_idx.get(entry)
         if idx is None:
             return ""
         s = sessions[idx]
+        status = "RESOLVED" if s.get("resolved") else "OPEN"
+        timespan = _format_timespan(s)
         header = (
+            f"Status: {status}\n"
             f"Skill: {s['skill']}  Tool: {s['tool']}  Type: {s['failure_type']}\n"
             f"Frequency: {s['frequency']}  Providers: {', '.join(s['providers'])}\n"
+            f"Timespan: {timespan or 'unknown'}\n"
             f"Session: {s['session_id']}\n"
-            f"Created: {s['created_at'][:19]}\n"
             f"{'─' * 60}\n\n"
         )
         return header + s["analysis"]
 
-    menu = TerminalMenu(
-        entries,
-        title="Analysis sessions — Enter to resume in Claude Code, q to quit",
-        preview_command=_preview,
-        preview_size=0.7,
-        preview_title="Analysis",
-    )
+    while True:
+        title = "Enter: resume in Claude · d: toggle resolved · q: quit"
+        menu = TerminalMenu(
+            entries,
+            title=title,
+            preview_command=_preview,
+            preview_size=0.7,
+            preview_title="Analysis",
+            accept_keys=("enter", "d"),
+            shortcut_key_highlight_style="",
+        )
 
-    choice = menu.show()
-    if choice is not None:
+        choice = menu.show()
+        if choice is None:
+            break
+
+        chosen_key = menu.chosen_accept_key
+        if chosen_key == "d" and store is not None:
+            s = sessions[choice]
+            new_resolved = not s.get("resolved", False)
+            store.resolve_session(s["session_id"], new_resolved)
+            s["resolved"] = new_resolved
+            entries, entry_to_idx = _build_entries()
+            continue
+
+        # Enter — resume
         _resume_session(sessions[choice]["session_id"])
 
 
@@ -211,8 +250,9 @@ def run_analysis(
             from refainery.analyze.prompts import build_cluster_analysis_prompt
 
             for i, cluster in enumerate(clusters[:20], 1):
+                ts = f" | {cluster.timespan}" if cluster.timespan else ""
                 console.rule(f"[bold]Cluster {i}/{min(len(clusters), 20)}: {cluster.skill}/{cluster.tool} ({cluster.failure_type})[/bold]")
-                console.print(f"[dim]Frequency: {cluster.frequency} | Providers: {', '.join(sorted(cluster.providers))}[/dim]")
+                console.print(f"[dim]Frequency: {cluster.frequency} | Providers: {', '.join(sorted(cluster.providers))}{ts}[/dim]")
                 console.print()
                 console.print(build_cluster_analysis_prompt(cluster), highlight=False, markup=False)
                 console.print()
@@ -256,7 +296,8 @@ def run_analysis(
                         icon = spinners[i]
                     else:
                         icon = Text("·", style="dim")
-                    label = f"{cluster.skill}/{cluster.tool} [dim]({cluster.failure_type}, {cluster.frequency}×)[/dim]"
+                    ts = f"  {cluster.timespan}" if cluster.timespan else ""
+                    label = f"{cluster.skill}/{cluster.tool} [dim]({cluster.failure_type}, {cluster.frequency}×){ts}[/dim]"
                     table.add_row(icon, label)
                 return table
 
@@ -294,15 +335,18 @@ def run_analysis(
                         frequency=s.cluster.frequency,
                         providers=s.cluster.providers,
                         analysis=s.text,
+                        first_seen=s.cluster.first_seen,
+                        last_seen=s.cluster.last_seen,
                     )
             console.print(f"  [green]{len(sessions)} new sessions created and stored[/green]")
 
         console.print()
 
         # 7. Interactive session picker
+        store.backfill_session_timespans()
         all_sessions = store.list_sessions(skill=skill)
         if all_sessions:
-            _interactive_session_picker(all_sessions, console)
+            _interactive_session_picker(all_sessions, console, store=store)
 
 
 def run_report(
@@ -352,14 +396,16 @@ def run_report(
         generate_report(results, fmt=fmt)
 
 
-def run_sessions(skill: str | None = None, resume_id: str | None = None) -> None:
+def run_sessions(skill: str | None = None, resume_id: str | None = None, include_resolved: bool = False) -> None:
     """List stored analysis sessions, or resume one."""
     console = Console()
 
     with Store() as store:
+        store.backfill_session_timespans()
+
         if resume_id:
             # Direct resume by session ID (or prefix match)
-            sessions = store.list_sessions(skill=skill)
+            sessions = store.list_sessions(skill=skill, include_resolved=True)
             match = None
             for s in sessions:
                 if s["session_id"] == resume_id or s["session_id"].startswith(resume_id):
@@ -372,12 +418,12 @@ def run_sessions(skill: str | None = None, resume_id: str | None = None) -> None
             _resume_session(match["session_id"])
             return
 
-        sessions = store.list_sessions(skill=skill)
+        sessions = store.list_sessions(skill=skill, include_resolved=include_resolved)
         if not sessions:
             console.print("[dim]No analysis sessions found. Run 'refainery analyze' first.[/dim]")
             return
 
-        _interactive_session_picker(sessions, console)
+        _interactive_session_picker(sessions, console, store=store)
 
 
 def run_apply(dry_run: bool = False) -> None:

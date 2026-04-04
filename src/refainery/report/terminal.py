@@ -44,6 +44,7 @@ def render_terminal(results: list[AnalysisResult]) -> None:
     table.add_column("Tool", max_width=25)
     table.add_column("Type", max_width=18)
     table.add_column("Freq", justify="right")
+    table.add_column("Timespan", max_width=25)
     table.add_column("Root Cause", max_width=22)
     table.add_column("Providers", max_width=14)
 
@@ -55,6 +56,7 @@ def render_terminal(results: list[AnalysisResult]) -> None:
             r.cluster.tool,
             r.cluster.failure_type,
             str(r.cluster.frequency),
+            r.cluster.timespan or "[dim]—[/dim]",
             r.root_cause,
             ", ".join(sorted(r.cluster.providers)),
         )
@@ -70,7 +72,8 @@ def render_terminal(results: list[AnalysisResult]) -> None:
 
         for i, r in enumerate(actionable, 1):
             color = SEVERITY_COLORS.get(r.severity, "white")
-            console.print(f"[bold]{i}. [{color}]{r.severity.upper()}[/{color}] {r.cluster.skill}/{r.cluster.tool}[/bold] ({r.cluster.failure_type}, freq={r.cluster.frequency})")
+            ts = f", {r.cluster.timespan}" if r.cluster.timespan else ""
+            console.print(f"[bold]{i}. [{color}]{r.severity.upper()}[/{color}] {r.cluster.skill}/{r.cluster.tool}[/bold] ({r.cluster.failure_type}, freq={r.cluster.frequency}{ts})")
             console.print(f"   [dim]Root cause:[/dim] {r.root_cause}")
             console.print(f"   {r.explanation}")
 

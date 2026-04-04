@@ -82,11 +82,12 @@ def report(fmt: str, skill: str | None, provider: str | None, since: datetime | 
 @main.command()
 @click.option("--skill", default=None, help="Filter sessions by skill.")
 @click.option("--resume", "resume_id", default=None, help="Resume a session by ID (or prefix).")
-def sessions(skill: str | None, resume_id: str | None) -> None:
+@click.option("--all", "show_all", is_flag=True, help="Include resolved sessions.")
+def sessions(skill: str | None, resume_id: str | None, show_all: bool) -> None:
     """List and resume analysis sessions in Claude Code."""
     from refainery.pipeline import run_sessions
 
-    run_sessions(skill=skill, resume_id=resume_id)
+    run_sessions(skill=skill, resume_id=resume_id, include_resolved=show_all)
 
 
 @main.command()

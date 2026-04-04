@@ -25,14 +25,15 @@ def render_markdown(results: list[AnalysisResult]) -> str:
 
     # Summary table
     lines.append("## Failure Clusters\n")
-    lines.append("| Severity | Skill | Tool | Type | Freq | Root Cause | Providers |")
-    lines.append("|----------|-------|------|------|------|------------|-----------|")
+    lines.append("| Severity | Skill | Tool | Type | Freq | Timespan | Root Cause | Providers |")
+    lines.append("|----------|-------|------|------|------|----------|------------|-----------|")
 
     for r in results:
         providers = ", ".join(sorted(r.cluster.providers))
+        ts = r.cluster.timespan or "—"
         lines.append(
             f"| {r.severity.upper()} | {r.cluster.skill} | {r.cluster.tool} | "
-            f"{r.cluster.failure_type} | {r.cluster.frequency} | {r.root_cause} | {providers} |"
+            f"{r.cluster.failure_type} | {r.cluster.frequency} | {ts} | {r.root_cause} | {providers} |"
         )
     lines.append("")
 
@@ -42,7 +43,8 @@ def render_markdown(results: list[AnalysisResult]) -> str:
         lines.append("## Actionable Suggestions\n")
         for i, r in enumerate(actionable, 1):
             lines.append(f"### {i}. [{r.severity.upper()}] {r.cluster.skill}/{r.cluster.tool}\n")
-            lines.append(f"**Failure type**: {r.cluster.failure_type} (freq={r.cluster.frequency})")
+            ts = f", {r.cluster.timespan}" if r.cluster.timespan else ""
+            lines.append(f"**Failure type**: {r.cluster.failure_type} (freq={r.cluster.frequency}{ts})")
             lines.append(f"**Root cause**: {r.root_cause}\n")
             lines.append(f"{r.explanation}\n")
 

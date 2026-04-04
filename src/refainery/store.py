@@ -74,7 +74,10 @@ CREATE TABLE IF NOT EXISTS analysis_sessions (
     frequency    INTEGER NOT NULL,
     providers    TEXT NOT NULL,
     analysis     TEXT NOT NULL,
-    created_at   TEXT NOT NULL
+    created_at   TEXT NOT NULL,
+    resolved     INTEGER NOT NULL DEFAULT 0,
+    first_seen   TEXT,
+    last_seen    TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_sessions_skill ON analysis_sessions (skill);
@@ -105,8 +108,21 @@ class Store:
         except sqlite3.Error:
             return  # Table doesn't exist yet, _SCHEMA will create it
         if "mtime" in cols and "content_hash" not in cols:
-            # Drop old table — re-index is cheap and avoids complex migration
             self._conn.executescript("DROP TABLE IF EXISTS conversations; DROP TABLE IF EXISTS invocations;")
+            self._conn.commit()
+
+        # Add columns to analysis_sessions if missing
+        try:
+            session_cols = {row[1] for row in self._conn.execute("PRAGMA table_info(analysis_sessions)").fetchall()}
+        except sqlite3.Error:
+            return
+        if session_cols:
+            if "resolved" not in session_cols:
+                self._conn.execute("ALTER TABLE analysis_sessions ADD COLUMN resolved INTEGER NOT NULL DEFAULT 0")
+            if "first_seen" not in session_cols:
+                self._conn.execute("ALTER TABLE analysis_sessions ADD COLUMN first_seen TEXT")
+            if "last_seen" not in session_cols:
+                self._conn.execute("ALTER TABLE analysis_sessions ADD COLUMN last_seen TEXT")
             self._conn.commit()
 
     def close(self) -> None:
@@ -302,30 +318,39 @@ class Store:
         frequency: int,
         providers: frozenset[str],
         analysis: str,
+        first_seen: datetime | None = None,
+        last_seen: datetime | None = None,
     ) -> None:
         """Store an analysis session for later resumption."""
         now = datetime.now(timezone.utc).isoformat()
         self._conn.execute(
             "INSERT OR REPLACE INTO analysis_sessions "
-            "(session_id, skill, tool, failure_type, frequency, providers, analysis, created_at) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-            (session_id, skill, tool, failure_type, frequency, json.dumps(sorted(providers)), analysis, now),
+            "(session_id, skill, tool, failure_type, frequency, providers, analysis, created_at, first_seen, last_seen) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (
+                session_id, skill, tool, failure_type, frequency,
+                json.dumps(sorted(providers)), analysis, now,
+                first_seen.isoformat() if first_seen else None,
+                last_seen.isoformat() if last_seen else None,
+            ),
         )
         self._conn.commit()
 
-    def list_sessions(self, skill: str | None = None) -> list[dict[str, Any]]:
+    def list_sessions(self, skill: str | None = None, include_resolved: bool = False) -> list[dict[str, Any]]:
         """List stored analysis sessions."""
+        conditions = []
+        params: list[Any] = []
         if skill:
-            rows = self._conn.execute(
-                "SELECT session_id, skill, tool, failure_type, frequency, providers, analysis, created_at "
-                "FROM analysis_sessions WHERE skill = ? ORDER BY frequency DESC",
-                (skill,),
-            ).fetchall()
-        else:
-            rows = self._conn.execute(
-                "SELECT session_id, skill, tool, failure_type, frequency, providers, analysis, created_at "
-                "FROM analysis_sessions ORDER BY frequency DESC"
-            ).fetchall()
+            conditions.append("skill = ?")
+            params.append(skill)
+        if not include_resolved:
+            conditions.append("resolved = 0")
+        where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+        rows = self._conn.execute(
+            f"SELECT session_id, skill, tool, failure_type, frequency, providers, analysis, created_at, resolved, first_seen, last_seen "
+            f"FROM analysis_sessions {where} ORDER BY last_seen DESC, frequency DESC",
+            params,
+        ).fetchall()
         return [
             {
                 "session_id": r[0],
@@ -336,9 +361,44 @@ class Store:
                 "providers": json.loads(r[5]),
                 "analysis": r[6],
                 "created_at": r[7],
+                "resolved": bool(r[8]),
+                "first_seen": r[9],
+                "last_seen": r[10],
             }
             for r in rows
         ]
+
+    def backfill_session_timespans(self) -> int:
+        """Backfill first_seen/last_seen for sessions that don't have them yet."""
+        sessions = self._conn.execute(
+            "SELECT id, skill, tool, failure_type FROM analysis_sessions WHERE first_seen IS NULL"
+        ).fetchall()
+        updated = 0
+        for row_id, skill, tool, failure_type in sessions:
+            # Tool may be compound (e.g. "Bash:cd") — match on base tool name
+            base_tool = tool.split(":")[0]
+            ts_row = self._conn.execute(
+                "SELECT MIN(timestamp), MAX(timestamp) FROM invocations "
+                "WHERE skill_context = ? AND tool_name = ?",
+                (skill, base_tool),
+            ).fetchone()
+            if ts_row and ts_row[0]:
+                self._conn.execute(
+                    "UPDATE analysis_sessions SET first_seen = ?, last_seen = ? WHERE id = ?",
+                    (ts_row[0], ts_row[1], row_id),
+                )
+                updated += 1
+        if updated:
+            self._conn.commit()
+        return updated
+
+    def resolve_session(self, session_id: str, resolved: bool = True) -> None:
+        """Mark a session as resolved or unresolved."""
+        self._conn.execute(
+            "UPDATE analysis_sessions SET resolved = ? WHERE session_id = ?",
+            (int(resolved), session_id),
+        )
+        self._conn.commit()
 
     def delete_sessions(self, skill: str | None = None) -> int:
         """Delete analysis sessions. Returns count deleted."""

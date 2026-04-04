@@ -25,6 +25,20 @@ def build_cluster_analysis_prompt(cluster: FailureCluster) -> str:
 - Next action: {inv.next_action or 'unknown'}
 """
 
+    first = cluster.first_seen
+    last = cluster.last_seen
+    if first and last:
+        span_days = (last - first).days
+        if span_days == 0:
+            lifespan = "same day"
+        elif span_days == 1:
+            lifespan = "1 day"
+        else:
+            lifespan = f"{span_days} days"
+        timespan_line = f"- **First seen**: {first.strftime('%Y-%m-%d')}\n- **Last seen**: {last.strftime('%Y-%m-%d')} ({lifespan} span)"
+    else:
+        timespan_line = "- **Timespan**: unknown"
+
     return f"""You are analyzing a failure cluster from AI coding agent conversations. Your goal is to provide a clear, actionable analysis that helps improve the skill instructions.
 
 ## Failure Cluster
@@ -34,6 +48,7 @@ def build_cluster_analysis_prompt(cluster: FailureCluster) -> str:
 - **Failure type**: {cluster.failure_type}
 - **Frequency**: {cluster.frequency} occurrences
 - **Providers affected**: {', '.join(sorted(cluster.providers))}
+{timespan_line}
 
 ## Representative Examples
 {examples_text}

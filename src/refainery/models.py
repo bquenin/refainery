@@ -49,6 +49,26 @@ class FailureCluster:
     def key(self) -> tuple[str, str, str]:
         return (self.skill, self.tool, self.failure_type)
 
+    @property
+    def first_seen(self) -> datetime | None:
+        if not self.occurrences:
+            return None
+        return min(inv.timestamp for inv in self.occurrences)
+
+    @property
+    def last_seen(self) -> datetime | None:
+        if not self.occurrences:
+            return None
+        return max(inv.timestamp for inv in self.occurrences)
+
+    @property
+    def timespan(self) -> str:
+        first, last = self.first_seen, self.last_seen
+        if not first or not last:
+            return ""
+        f, l = first.strftime("%Y-%m-%d"), last.strftime("%Y-%m-%d")
+        return f if f == l else f"{f} → {l}"
+
 
 @dataclass
 class AnalysisResult:

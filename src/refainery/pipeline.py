@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from datetime import datetime
 
 from rich.console import Console
@@ -12,7 +13,50 @@ from refainery.models import AnalysisResult
 from refainery.providers import ProviderRegistry
 from refainery.store import Store
 
-SEVERITY_RANK = {"high": 3, "medium": 2, "low": 1}
+
+def _resume_session(session_id: str) -> None:
+    """Resume a Claude Code session by replacing the current process."""
+    os.execvp("claude", ["claude", "--resume", session_id])
+
+
+def _interactive_session_picker(sessions: list[dict], console: Console) -> None:
+    """Show an interactive menu of sessions. Enter resumes in Claude Code."""
+    from simple_term_menu import TerminalMenu
+
+    # Build a lookup from entry string -> index
+    entries = []
+    entry_to_idx: dict[str, int] = {}
+    for i, s in enumerate(sessions):
+        label = f"{s['skill']}/{s['tool']} ({s['failure_type']}, {s['frequency']}×)"
+        entries.append(label)
+        entry_to_idx[label] = i
+
+    def _preview(entry: str) -> str:
+        idx = entry_to_idx.get(entry)
+        if idx is None:
+            return ""
+        s = sessions[idx]
+        header = (
+            f"Skill: {s['skill']}  Tool: {s['tool']}  Type: {s['failure_type']}\n"
+            f"Frequency: {s['frequency']}  Providers: {', '.join(s['providers'])}\n"
+            f"Session: {s['session_id']}\n"
+            f"Created: {s['created_at'][:19]}\n"
+            f"{'─' * 60}\n\n"
+        )
+        return header + s["analysis"]
+
+    menu = TerminalMenu(
+        entries,
+        title="Analysis sessions — Enter to resume in Claude Code, q to quit",
+        preview_command=_preview,
+        preview_size=0.7,
+        preview_title="Analysis",
+    )
+
+    choice = menu.show()
+    if choice is not None:
+        _resume_session(sessions[choice]["session_id"])
+
 
 
 def index_invocations(
@@ -135,7 +179,7 @@ def run_analysis(
     skill: str | None = None,
     provider: str | None = None,
     since: datetime | None = None,
-    min_severity: str | None = None,
+    dry_run: bool = False,
 ) -> None:
     """Full pipeline: extract -> detect -> analyze -> report to terminal."""
     console = Console()
@@ -162,24 +206,103 @@ def run_analysis(
             console.print("[green]No failure patterns detected.[/green]")
             return
 
-        # 4. Analyze
-        console.print("[bold]Analyzing clusters with Claude...[/bold]")
-        from refainery.analyze import analyze_clusters
+        # 4. Dry run — show prompts without calling the API
+        if dry_run:
+            from refainery.analyze.prompts import build_cluster_analysis_prompt
 
-        results = analyze_clusters(clusters)
+            for i, cluster in enumerate(clusters[:20], 1):
+                console.rule(f"[bold]Cluster {i}/{min(len(clusters), 20)}: {cluster.skill}/{cluster.tool} ({cluster.failure_type})[/bold]")
+                console.print(f"[dim]Frequency: {cluster.frequency} | Providers: {', '.join(sorted(cluster.providers))}[/dim]")
+                console.print()
+                console.print(build_cluster_analysis_prompt(cluster), highlight=False, markup=False)
+                console.print()
+            return
 
-        # 5. Cache analysis results
-        store.save_analysis_results(results)
+        # 5. Skip clusters that already have sessions
+        all_clusters = clusters[:20]
+        new_clusters = [
+            c for c in all_clusters
+            if not store.has_session(c.skill, c.tool, c.failure_type)
+        ]
+        existing = len(all_clusters) - len(new_clusters)
 
-        # 6. Filter by severity
-        if min_severity:
-            min_rank = SEVERITY_RANK.get(min_severity, 0)
-            results = [r for r in results if SEVERITY_RANK.get(r.severity, 0) >= min_rank]
+        if not new_clusters:
+            console.print(f"  All {len(all_clusters)} clusters already have sessions")
+            console.print(f"[dim]  Use 'refainery sessions --skill {skill or '...'}' to review them.[/dim]")
+        else:
+            if existing:
+                console.print(f"  Skipping {existing} clusters with existing sessions")
+            console.print(f"[bold]Analyzing {len(new_clusters)} clusters with Claude...[/bold]")
+            console.print()
 
-        # 7. Report
-        from refainery.report import generate_report
+            from rich.live import Live
+            from rich.spinner import Spinner
+            from rich.table import Table
+            from rich.text import Text
+            from refainery.analyze.client import analyze_clusters_parallel
 
-        generate_report(results, fmt="terminal")
+            # Track state per cluster: "pending", "running", "done"
+            states = ["pending"] * len(new_clusters)
+            spinners = [Spinner("dots", style="yellow") for _ in new_clusters]
+
+            def _build_table() -> Table:
+                table = Table(show_header=False, box=None, padding=(0, 1))
+                table.add_column(width=3)
+                table.add_column()
+                for i, cluster in enumerate(new_clusters):
+                    if states[i] == "done":
+                        icon: Text | Spinner = Text("✓", style="green")
+                    elif states[i] == "running":
+                        icon = spinners[i]
+                    else:
+                        icon = Text("·", style="dim")
+                    label = f"{cluster.skill}/{cluster.tool} [dim]({cluster.failure_type}, {cluster.frequency}×)[/dim]"
+                    table.add_row(icon, label)
+                return table
+
+            live = Live(_build_table(), console=console, refresh_per_second=10, transient=True)
+
+            def on_start(idx: int) -> None:
+                states[idx] = "running"
+                live.update(_build_table())
+
+            def on_done(idx: int) -> None:
+                states[idx] = "done"
+                live.update(_build_table())
+
+            try:
+                with live:
+                    sessions = analyze_clusters_parallel(
+                        new_clusters, on_start=on_start, on_done=on_done,
+                    )
+            except Exception as e:
+                console.print(f"[red]Analysis failed:[/red] {type(e).__name__}: {e}")
+                return
+
+            # Show final state (all checkmarks)
+            console.print(_build_table())
+            console.print()
+
+            # Store sessions in DB
+            for s in sessions:
+                if s.session_id:
+                    store.save_session(
+                        session_id=s.session_id,
+                        skill=s.cluster.skill,
+                        tool=s.cluster.tool,
+                        failure_type=s.cluster.failure_type,
+                        frequency=s.cluster.frequency,
+                        providers=s.cluster.providers,
+                        analysis=s.text,
+                    )
+            console.print(f"  [green]{len(sessions)} new sessions created and stored[/green]")
+
+        console.print()
+
+        # 7. Interactive session picker
+        all_sessions = store.list_sessions(skill=skill)
+        if all_sessions:
+            _interactive_session_picker(all_sessions, console)
 
 
 def run_report(
@@ -229,29 +352,44 @@ def run_report(
         generate_report(results, fmt=fmt)
 
 
-def run_apply(dry_run: bool = False) -> None:
-    """Full pipeline with interactive apply."""
+def run_sessions(skill: str | None = None, resume_id: str | None = None) -> None:
+    """List stored analysis sessions, or resume one."""
     console = Console()
 
     with Store() as store:
-        console.print("[bold]Updating index...[/bold]")
-        _ensure_indexed(store, console)
-
-        invocations = store.query_invocations()
-        if not invocations:
-            console.print("[dim]No invocations found.[/dim]")
+        if resume_id:
+            # Direct resume by session ID (or prefix match)
+            sessions = store.list_sessions(skill=skill)
+            match = None
+            for s in sessions:
+                if s["session_id"] == resume_id or s["session_id"].startswith(resume_id):
+                    match = s
+                    break
+            if not match:
+                console.print(f"[red]No session found matching '{resume_id}'[/red]")
+                return
+            console.print(f"[dim]Resuming session {match['session_id']}...[/dim]")
+            _resume_session(match["session_id"])
             return
 
-        clusters = detect_failures(invocations)
-        if not clusters:
-            console.print("[green]No failure patterns detected.[/green]")
+        sessions = store.list_sessions(skill=skill)
+        if not sessions:
+            console.print("[dim]No analysis sessions found. Run 'refainery analyze' first.[/dim]")
             return
 
-        from refainery.analyze import analyze_clusters
+        _interactive_session_picker(sessions, console)
 
-        results = analyze_clusters(clusters)
-        store.save_analysis_results(results)
+
+def run_apply(dry_run: bool = False) -> None:
+    """Show stored analysis sessions and their suggestions."""
+    console = Console()
+
+    with Store() as store:
+        sessions = store.list_sessions()
+        if not sessions:
+            console.print("[dim]No analysis sessions found. Run 'refainery analyze' first.[/dim]")
+            return
 
         from refainery.apply import apply_suggestions
 
-        apply_suggestions(results, dry_run=dry_run)
+        apply_suggestions(sessions, dry_run=dry_run)

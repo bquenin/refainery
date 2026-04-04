@@ -59,12 +59,12 @@ def stats() -> None:
 @click.option("--skill", default=None, help="Focus on a specific skill.")
 @click.option("--provider", default=None, type=click.Choice(["claude", "cursor"]), help="Filter by provider.")
 @click.option("--since", default=None, type=SINCE, help="Time window, e.g. '7d', '24h', '2w'.")
-@click.option("--min-severity", default=None, type=click.Choice(["low", "medium", "high"]), help="Filter output by minimum severity.")
-def analyze(skill: str | None, provider: str | None, since: datetime | None, min_severity: str | None) -> None:
+@click.option("--dry-run", is_flag=True, help="Show prompts that would be sent to Claude without calling the API.")
+def analyze(skill: str | None, provider: str | None, since: datetime | None, dry_run: bool) -> None:
     """Analyze recent conversations for skill failures."""
     from refainery.pipeline import run_analysis
 
-    run_analysis(skill=skill, provider=provider, since=since, min_severity=min_severity)
+    run_analysis(skill=skill, provider=provider, since=since, dry_run=dry_run)
 
 
 @main.command()
@@ -77,6 +77,16 @@ def report(fmt: str, skill: str | None, provider: str | None, since: datetime | 
     from refainery.pipeline import run_report
 
     run_report(fmt=fmt, skill=skill, provider=provider, since=since)
+
+
+@main.command()
+@click.option("--skill", default=None, help="Filter sessions by skill.")
+@click.option("--resume", "resume_id", default=None, help="Resume a session by ID (or prefix).")
+def sessions(skill: str | None, resume_id: str | None) -> None:
+    """List and resume analysis sessions in Claude Code."""
+    from refainery.pipeline import run_sessions
+
+    run_sessions(skill=skill, resume_id=resume_id)
 
 
 @main.command()

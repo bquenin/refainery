@@ -5,7 +5,7 @@ from __future__ import annotations
 from refainery.models import FailureCluster
 
 
-def build_cluster_analysis_prompt(cluster: FailureCluster, skill_md_content: str | None = None) -> str:
+def build_cluster_analysis_prompt(cluster: FailureCluster) -> str:
     """Build the analysis prompt for a single failure cluster."""
 
     # Select representative examples (up to 5)
@@ -25,17 +25,7 @@ def build_cluster_analysis_prompt(cluster: FailureCluster, skill_md_content: str
 - Next action: {inv.next_action or 'unknown'}
 """
 
-    skill_section = ""
-    if skill_md_content:
-        skill_section = f"""
-## Current SKILL.md content
-
-```markdown
-{skill_md_content[:3000]}
-```
-"""
-
-    return f"""You are analyzing a failure cluster from AI coding agent conversations to identify root causes and suggest improvements to skill instructions.
+    return f"""You are analyzing a failure cluster from AI coding agent conversations. Your goal is to provide a clear, actionable analysis that helps improve the skill instructions.
 
 ## Failure Cluster
 
@@ -47,28 +37,17 @@ def build_cluster_analysis_prompt(cluster: FailureCluster, skill_md_content: str
 
 ## Representative Examples
 {examples_text}
-{skill_section}
 ## Instructions
 
-Analyze these failures and respond with a JSON object (no markdown fences) containing:
+Analyze these failures and provide:
 
-1. **root_cause**: A brief classification of the root cause. Examples:
-   - "missing_instructions" — SKILL.md doesn't cover this scenario
-   - "wrong_parameters" — agent uses wrong flags or arguments
-   - "output_parsing" — agent can't parse the tool's output format
-   - "tool_limitation" — the CLI tool itself has a bug or limitation
-   - "context_gap" — agent lacks necessary context about the environment
-   - "retry_without_learning" — agent retries the same approach without adapting
+1. **What's going wrong** — describe the pattern you see in the examples. What is the agent doing, and why is it failing or being inefficient?
 
-2. **severity**: "high" (blocks task completion), "medium" (causes delays), or "low" (minor inefficiency)
+2. **Root cause** — why does this keep happening? Is it a gap in the skill instructions, wrong tool usage, a limitation of the CLI tool, or something else?
 
-3. **skill_md_suggestion**: If the root cause is addressable by updating SKILL.md, provide the specific text to add or change. null if not applicable.
+3. **Suggested fix** — provide specific, concrete changes. If the fix is a SKILL.md update, write the exact text to add. If it's a workflow change, describe the steps.
 
-4. **cli_tool_suggestion**: If the root cause is in the CLI tool itself, describe the change needed. null if not applicable.
-
-5. **explanation**: 2-3 sentences explaining WHY this failure happens and how the suggested fix would prevent it.
-
-Respond with ONLY the JSON object."""
+Be concise and actionable. Focus on what would prevent these failures from recurring."""
 
 
 def _truncate_dict(d: dict, max_len: int = 300) -> str:

@@ -1,59 +1,94 @@
-"""Anthropic SDK client for failure cluster analysis."""
+"""Claude Agent SDK client for failure cluster analysis."""
 
 from __future__ import annotations
 
-import json
+import asyncio
+from collections.abc import Callable
+from dataclasses import dataclass
 
-import anthropic
+from claude_agent_sdk import ClaudeAgentOptions, ClaudeSDKClient
+from claude_agent_sdk.types import ResultMessage
 
 from refainery.analyze.prompts import build_cluster_analysis_prompt
-from refainery.models import AnalysisResult, FailureCluster
+from refainery.models import FailureCluster
 
 
-class AnalyzerClient:
-    """Wraps the Anthropic SDK to analyze failure clusters."""
+SYSTEM_PROMPT = """\
+You are an expert at analyzing AI coding agent failure patterns. \
+Given a failure cluster, provide a clear and actionable analysis. \
+Use markdown formatting for readability.\
+"""
 
-    def __init__(self, model: str = "claude-sonnet-4-20250514") -> None:
-        self.client = anthropic.Anthropic()
-        self.model = model
 
-    def analyze_cluster(self, cluster: FailureCluster) -> AnalysisResult:
+@dataclass
+class AnalysisSession:
+    """Result of analyzing a single cluster, with session ID for resumption."""
+
+    cluster: FailureCluster
+    text: str
+    session_id: str
+
+
+async def _query_agent(prompt: str) -> tuple[str, str]:
+    """Send a prompt to Claude via the Agent SDK.
+
+    Returns (response_text, session_id).
+    """
+    options = ClaudeAgentOptions(
+        model="sonnet",
+        allowed_tools=[],
+        permission_mode="bypassPermissions",
+        system_prompt=SYSTEM_PROMPT,
+    )
+
+    async with ClaudeSDKClient(options=options) as client:
+        await client.query(prompt)
+
+        parts: list[str] = []
+        session_id = ""
+        async for message in client.receive_response():
+            if isinstance(message, ResultMessage):
+                session_id = message.session_id
+            elif hasattr(message, "content") and isinstance(message.content, list):
+                for block in message.content:
+                    if hasattr(block, "text") and block.text:
+                        parts.append(block.text)
+
+        return "".join(parts), session_id
+
+
+async def _analyze_one(
+    index: int,
+    cluster: FailureCluster,
+    semaphore: asyncio.Semaphore,
+    on_start: Callable[[int], None] | None = None,
+    on_done: Callable[[int], None] | None = None,
+) -> AnalysisSession:
+    """Analyze a single cluster and return the session."""
+    async with semaphore:
+        if on_start:
+            on_start(index)
         prompt = build_cluster_analysis_prompt(cluster)
+        text, session_id = await _query_agent(prompt)
+        if on_done:
+            on_done(index)
+        return AnalysisSession(cluster=cluster, text=text, session_id=session_id)
 
-        response = self.client.messages.create(
-            model=self.model,
-            max_tokens=1024,
-            messages=[{"role": "user", "content": prompt}],
+
+def analyze_clusters_parallel(
+    clusters: list[FailureCluster],
+    max_clusters: int = 20,
+    concurrency: int = 3,
+    on_start: Callable[[int], None] | None = None,
+    on_done: Callable[[int], None] | None = None,
+) -> list[AnalysisSession]:
+    """Analyze clusters in parallel (bounded concurrency), returning sessions with IDs for resumption."""
+    to_analyze = clusters[:max_clusters]
+
+    async def _run() -> list[AnalysisSession]:
+        sem = asyncio.Semaphore(concurrency)
+        return await asyncio.gather(
+            *[_analyze_one(i, c, sem, on_start, on_done) for i, c in enumerate(to_analyze)]
         )
 
-        # Extract text response
-        text = ""
-        for block in response.content:
-            if block.type == "text":
-                text += block.text
-
-        # Parse JSON response
-        try:
-            # Strip markdown fences if present
-            cleaned = text.strip()
-            if cleaned.startswith("```"):
-                cleaned = cleaned.split("\n", 1)[1]
-                if cleaned.endswith("```"):
-                    cleaned = cleaned[: cleaned.rfind("```")]
-            data = json.loads(cleaned)
-        except json.JSONDecodeError:
-            return AnalysisResult(
-                cluster=cluster,
-                root_cause="parse_error",
-                severity="low",
-                explanation=f"Could not parse LLM response: {text[:200]}",
-            )
-
-        return AnalysisResult(
-            cluster=cluster,
-            root_cause=data.get("root_cause", "unknown"),
-            severity=data.get("severity", "low"),
-            skill_md_suggestion=data.get("skill_md_suggestion"),
-            cli_tool_suggestion=data.get("cli_tool_suggestion"),
-            explanation=data.get("explanation", ""),
-        )
+    return asyncio.run(_run())

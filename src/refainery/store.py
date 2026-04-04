@@ -64,6 +64,20 @@ CREATE TABLE IF NOT EXISTS analysis_results (
     analyzed_at         TEXT NOT NULL,
     UNIQUE (skill, tool, failure_type)
 );
+
+CREATE TABLE IF NOT EXISTS analysis_sessions (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    session_id   TEXT NOT NULL UNIQUE,
+    skill        TEXT NOT NULL,
+    tool         TEXT NOT NULL,
+    failure_type TEXT NOT NULL,
+    frequency    INTEGER NOT NULL,
+    providers    TEXT NOT NULL,
+    analysis     TEXT NOT NULL,
+    created_at   TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_sessions_skill ON analysis_sessions (skill);
 """
 
 
@@ -268,6 +282,72 @@ class Store:
     def clear_analysis_results(self) -> None:
         self._conn.execute("DELETE FROM analysis_results")
         self._conn.commit()
+
+    # --- Analysis sessions ---
+
+    def has_session(self, skill: str, tool: str, failure_type: str) -> bool:
+        """Check if an analysis session already exists for this cluster."""
+        row = self._conn.execute(
+            "SELECT 1 FROM analysis_sessions WHERE skill = ? AND tool = ? AND failure_type = ?",
+            (skill, tool, failure_type),
+        ).fetchone()
+        return row is not None
+
+    def save_session(
+        self,
+        session_id: str,
+        skill: str,
+        tool: str,
+        failure_type: str,
+        frequency: int,
+        providers: frozenset[str],
+        analysis: str,
+    ) -> None:
+        """Store an analysis session for later resumption."""
+        now = datetime.now(timezone.utc).isoformat()
+        self._conn.execute(
+            "INSERT OR REPLACE INTO analysis_sessions "
+            "(session_id, skill, tool, failure_type, frequency, providers, analysis, created_at) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+            (session_id, skill, tool, failure_type, frequency, json.dumps(sorted(providers)), analysis, now),
+        )
+        self._conn.commit()
+
+    def list_sessions(self, skill: str | None = None) -> list[dict[str, Any]]:
+        """List stored analysis sessions."""
+        if skill:
+            rows = self._conn.execute(
+                "SELECT session_id, skill, tool, failure_type, frequency, providers, analysis, created_at "
+                "FROM analysis_sessions WHERE skill = ? ORDER BY frequency DESC",
+                (skill,),
+            ).fetchall()
+        else:
+            rows = self._conn.execute(
+                "SELECT session_id, skill, tool, failure_type, frequency, providers, analysis, created_at "
+                "FROM analysis_sessions ORDER BY frequency DESC"
+            ).fetchall()
+        return [
+            {
+                "session_id": r[0],
+                "skill": r[1],
+                "tool": r[2],
+                "failure_type": r[3],
+                "frequency": r[4],
+                "providers": json.loads(r[5]),
+                "analysis": r[6],
+                "created_at": r[7],
+            }
+            for r in rows
+        ]
+
+    def delete_sessions(self, skill: str | None = None) -> int:
+        """Delete analysis sessions. Returns count deleted."""
+        if skill:
+            cursor = self._conn.execute("DELETE FROM analysis_sessions WHERE skill = ?", (skill,))
+        else:
+            cursor = self._conn.execute("DELETE FROM analysis_sessions")
+        self._conn.commit()
+        return cursor.rowcount
 
     # --- Stats ---
 

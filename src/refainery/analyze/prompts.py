@@ -16,6 +16,7 @@ def build_cluster_analysis_prompt(cluster: FailureCluster) -> str:
         output_preview = inv.output[:500] if inv.output else "(no output)"
         examples_text += f"""
 ### Example {i}
+- Timestamp: {inv.timestamp.strftime('%Y-%m-%d %H:%M')}
 - Provider: {inv.provider}
 - Tool: {inv.tool_name}
 - Command: {inv.command or '(not a shell command)'}

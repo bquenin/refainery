@@ -214,11 +214,77 @@ def _ensure_indexed(
         console.print(f"  Indexed {new_convs} new/updated conversations ({new_invs} invocations)")
 
 
+def _interactive_cluster_picker(
+    clusters: list,
+    console: Console,
+    store: Store,
+) -> list:
+    """Show an interactive multi-select menu of failure clusters.
+
+    Returns the selected clusters.
+    """
+    from simple_term_menu import TerminalMenu
+
+    entries = []
+    for c in clusters:
+        has_session = store.has_session(c.skill, c.tool, c.failure_type)
+        analyzed = "✓ " if has_session else "  "
+        ts = f"  [{c.timespan}]" if c.timespan else ""
+        providers = ", ".join(sorted(c.providers))
+        label = f"{analyzed}{c.skill}/{c.tool} ({c.failure_type}, {c.frequency}×, {providers}){ts}"
+        entries.append(label)
+
+    def _preview(entry: str) -> str:
+        idx = entries.index(entry)
+        c = clusters[idx]
+        has_session = store.has_session(c.skill, c.tool, c.failure_type)
+        status = "ANALYZED" if has_session else "NOT ANALYZED"
+        lines = [
+            f"Status: {status}",
+            f"Skill: {c.skill}  Tool: {c.tool}  Type: {c.failure_type}",
+            f"Frequency: {c.frequency}  Providers: {', '.join(sorted(c.providers))}",
+            f"Timespan: {c.timespan or 'unknown'}",
+            f"{'─' * 60}",
+            "",
+            f"Sample occurrences ({min(5, len(c.occurrences))} of {len(c.occurrences)}):",
+            "",
+        ]
+        for occ in c.occurrences[:5]:
+            cmd = occ.command or occ.tool_name
+            output_preview = (occ.output or "")[:200].replace("\n", " ")
+            lines.append(f"  [{occ.timestamp:%Y-%m-%d %H:%M}] {cmd}")
+            if output_preview:
+                lines.append(f"    → {output_preview}")
+            lines.append("")
+        return "\n".join(lines)
+
+    menu = TerminalMenu(
+        entries,
+        title="Space: select · Enter: analyze selected · q: quit",
+        multi_select=True,
+        show_multi_select_hint=True,
+        preview_command=_preview,
+        preview_size=0.5,
+        preview_title="Cluster Details",
+        multi_select_select_on_accept=False,
+        shortcut_key_highlight_style="",
+    )
+
+    selection = menu.show()
+    if selection is None:
+        return []
+
+    if isinstance(selection, int):
+        return [clusters[selection]]
+    return [clusters[i] for i in selection]
+
+
 def run_analysis(
     skill: str | None = None,
     provider: str | None = None,
     since: datetime | None = None,
     dry_run: bool = False,
+    interactive: bool = False,
 ) -> None:
     """Full pipeline: extract -> detect -> analyze -> report to terminal."""
     console = Console()
@@ -247,31 +313,51 @@ def run_analysis(
 
         # 4. Dry run — show prompts without calling the API
         if dry_run:
-            from refainery.analyze.prompts import build_cluster_analysis_prompt
+            from refainery.analyze.prompts import build_cluster_analysis_prompt, write_occurrences_csv
 
-            for i, cluster in enumerate(clusters[:20], 1):
+            target = clusters if interactive else clusters[:20]
+            if interactive:
+                target = _interactive_cluster_picker(target, console, store)
+                if not target:
+                    return
+
+            for i, cluster in enumerate(target, 1):
                 ts = f" | {cluster.timespan}" if cluster.timespan else ""
-                console.rule(f"[bold]Cluster {i}/{min(len(clusters), 20)}: {cluster.skill}/{cluster.tool} ({cluster.failure_type})[/bold]")
+                csv_path = write_occurrences_csv(cluster)
+                console.rule(f"[bold]Cluster {i}/{len(target)}: {cluster.skill}/{cluster.tool} ({cluster.failure_type})[/bold]")
                 console.print(f"[dim]Frequency: {cluster.frequency} | Providers: {', '.join(sorted(cluster.providers))}{ts}[/dim]")
+                console.print(f"[dim]CSV: {csv_path}[/dim]")
                 console.print()
-                console.print(build_cluster_analysis_prompt(cluster), highlight=False, markup=False)
+                console.print(build_cluster_analysis_prompt(cluster, csv_path), highlight=False, markup=False)
                 console.print()
             return
 
-        # 5. Skip clusters that already have sessions
-        all_clusters = clusters[:20]
-        new_clusters = [
-            c for c in all_clusters
-            if not store.has_session(c.skill, c.tool, c.failure_type)
-        ]
-        existing = len(all_clusters) - len(new_clusters)
-
-        if not new_clusters:
-            console.print(f"  All {len(all_clusters)} clusters already have sessions")
-            console.print(f"[dim]  Use 'refainery sessions --skill {skill or '...'}' to review them.[/dim]")
+        # 5. Select clusters to analyze
+        if interactive:
+            selected = _interactive_cluster_picker(clusters, console, store)
+            if not selected:
+                return
+            new_clusters = [
+                c for c in selected
+                if not store.has_session(c.skill, c.tool, c.failure_type)
+            ]
+            already = len(selected) - len(new_clusters)
+            if already:
+                console.print(f"  Skipping {already} clusters that already have sessions")
         else:
+            all_clusters = clusters[:20]
+            new_clusters = [
+                c for c in all_clusters
+                if not store.has_session(c.skill, c.tool, c.failure_type)
+            ]
+            existing = len(all_clusters) - len(new_clusters)
             if existing:
                 console.print(f"  Skipping {existing} clusters with existing sessions")
+
+        if not new_clusters:
+            console.print("  All selected clusters already have sessions")
+            console.print(f"[dim]  Use 'refainery sessions --skill {skill or '...'}' to review them.[/dim]")
+        else:
             console.print(f"[bold]Analyzing {len(new_clusters)} clusters with Claude...[/bold]")
             console.print()
 

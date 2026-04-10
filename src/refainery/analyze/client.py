@@ -5,17 +5,19 @@ from __future__ import annotations
 import asyncio
 from collections.abc import Callable
 from dataclasses import dataclass
+from pathlib import Path
 
 from claude_agent_sdk import ClaudeAgentOptions, ClaudeSDKClient
 from claude_agent_sdk.types import ResultMessage
 
-from refainery.analyze.prompts import build_cluster_analysis_prompt
+from refainery.analyze.prompts import build_cluster_analysis_prompt, write_occurrences_csv
 from refainery.models import FailureCluster
 
 
 SYSTEM_PROMPT = """\
 You are an expert at analyzing AI coding agent failure patterns. \
-Given a failure cluster, provide a clear and actionable analysis. \
+You have access to tools to read and analyze CSV data files containing failure occurrences. \
+Use your tools to thoroughly explore the data before drawing conclusions. \
 Use markdown formatting for readability.\
 """
 
@@ -29,16 +31,17 @@ class AnalysisSession:
     session_id: str
 
 
-async def _query_agent(prompt: str) -> tuple[str, str]:
+async def _query_agent(prompt: str, csv_path: Path) -> tuple[str, str]:
     """Send a prompt to Claude via the Agent SDK.
 
     Returns (response_text, session_id).
     """
     options = ClaudeAgentOptions(
         model="sonnet",
-        allowed_tools=[],
+        allowed_tools=["Read", "Bash", "Grep", "Glob"],
         permission_mode="bypassPermissions",
         system_prompt=SYSTEM_PROMPT,
+        add_dirs=[str(csv_path.parent)],
     )
 
     async with ClaudeSDKClient(options=options) as client:
@@ -68,8 +71,9 @@ async def _analyze_one(
     async with semaphore:
         if on_start:
             on_start(index)
-        prompt = build_cluster_analysis_prompt(cluster)
-        text, session_id = await _query_agent(prompt)
+        csv_path = write_occurrences_csv(cluster)
+        prompt = build_cluster_analysis_prompt(cluster, csv_path)
+        text, session_id = await _query_agent(prompt, csv_path)
         if on_done:
             on_done(index)
         return AnalysisSession(cluster=cluster, text=text, session_id=session_id)

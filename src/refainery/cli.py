@@ -60,11 +60,12 @@ def stats() -> None:
 @click.option("--provider", default=None, type=click.Choice(["claude", "cursor"]), help="Filter by provider.")
 @click.option("--since", default=None, type=SINCE, help="Time window, e.g. '7d', '24h', '2w'.")
 @click.option("--dry-run", is_flag=True, help="Show prompts that would be sent to Claude without calling the API.")
-def analyze(skill: str | None, provider: str | None, since: datetime | None, dry_run: bool) -> None:
+@click.option("-i", "--interactive", is_flag=True, help="Interactively select which clusters to analyze.")
+def analyze(skill: str | None, provider: str | None, since: datetime | None, dry_run: bool, interactive: bool) -> None:
     """Analyze recent conversations for skill failures."""
     from refainery.pipeline import run_analysis
 
-    run_analysis(skill=skill, provider=provider, since=since, dry_run=dry_run)
+    run_analysis(skill=skill, provider=provider, since=since, dry_run=dry_run, interactive=interactive)
 
 
 @main.command()

@@ -1,0 +1,4 @@
+interface:
+  display_name: "refainery"
+  short_description: "Analyze agent sessions for skill improvements"
+  default_prompt: "Use $refainery to analyze recent agent sessions for tool-call struggles and recommend skill or tool improvements."

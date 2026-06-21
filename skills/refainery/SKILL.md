@@ -49,6 +49,7 @@ Prefer `mnemonai` as the session source. Do not parse provider-specific session 
    - Tool output is too noisy, truncated, unstructured, or missing an identifier needed for the next step.
    - The agent says it is trying again, confused, unable to find something, or that the previous attempt did not work.
    - Avoid counting a missing result from the currently active/latest session as a finding unless nearby messages show the tool was abandoned or cancelled.
+   - The `cursor-agent` provider records tool calls but not tool results, so its traces are call-only by design. Never treat a `cursor-agent` tool call's absent result as a struggle, abandonment, or cancellation.
 
 6. Triage detected signals before writing findings.
    - Run `scripts/triage.sh <id-or-path>` to bucket a session's tool results into `confirmed_failure` and `review_candidate` automatically; do not retype the jq by hand. See `references/mnemonai-json.md`.

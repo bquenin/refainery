@@ -93,6 +93,8 @@ Pair tool calls and results by `tool_call_id`.
 
 If a result is missing, classify it as an incomplete trace unless nearby system messages explain cancellation.
 
+The `cursor-agent` provider is a known exception: its transcripts store `tool_call` messages but no `tool_result` messages (results are not recorded in a linkable form), so every `cursor-agent` tool call legitimately has no result. Treat `cursor-agent` traces as call-only and do not report the absent results as missing, cancelled, or a struggle. The `cursor` (IDE) provider, by contrast, does expose tool results.
+
 Use adjacent assistant text to infer intent:
 
 - Previous assistant text: what the model was trying to do.

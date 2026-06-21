@@ -50,7 +50,13 @@ Prefer `mnemonai` as the session source. Do not parse provider-specific session 
    - The agent says it is trying again, confused, unable to find something, or that the previous attempt did not work.
    - Avoid counting a missing result from the currently active/latest session as a finding unless nearby messages show the tool was abandoned or cancelled.
 
-6. Classify likely causes.
+6. Triage detected signals before writing findings.
+   - Confirmed failures: structured errors, non-zero exit codes, failing statuses, or text-only failures confirmed by surrounding intent and recovery behavior.
+   - Review candidates: strong text-only signals such as tracebacks, shell errors, compiler errors, permission failures, missing files, or invalid usage when structured fields are missing or inconclusive.
+   - Benign/noise: successful help output, expected negative tests, docs/source text containing failure words, exploratory misses that immediately recover, and missing results from the currently active/latest session.
+   - Only promote a review candidate into the main findings when nearby messages show retry, abandonment, user correction, wrong success claim, or a repeated pattern across sessions.
+
+7. Classify likely causes.
    - Skill instruction gap: `SKILL.md` omitted a necessary command, flag, ordering rule, safety rule, or interpretation detail.
    - CLI/tool UX gap: the tool accepted ambiguous input, emitted hard-to-parse output, hid required identifiers, or lacked a headless mode.
    - Hook/rule gap: a repeated mistake could be prevented by a repo rule, preflight check, shell helper, or validation hook.
@@ -60,9 +66,11 @@ Prefer `mnemonai` as the session source. Do not parse provider-specific session 
    - Benign exploration: the behavior was reasonable discovery rather than actual struggle.
    - When a failure fits more than one category, prefer the cheapest durable fix: documentation (skill) before automation (hook/rule) before tool changes (CLI/UX). Pick the category that matches the recommended fix.
 
-7. Recommend improvements.
+8. Recommend improvements.
    - Prefer small, testable changes with direct evidence from sessions.
    - Separate skill edits, CLI/tool changes, rules/hooks, and extraction improvements.
+   - Prefer setup/rule guidance for repeated shell portability mistakes; prefer skill edits for repeated tool-ordering or interpretation mistakes; prefer `mnemonai` changes only when evidence is missing, ambiguous, or too hard to reconstruct from JSON.
+   - Do not recommend automation or hooks until the same issue repeats across sessions or causes a high-severity failure.
    - Do not apply edits unless the user asks.
    - If recommending a skill change, inspect the relevant `SKILL.md` first.
    - If recommending a code or CLI change, inspect the owning repo before proposing exact implementation details.
@@ -83,6 +91,8 @@ Then include:
 - Scope: time window, cwd/project filter, provider filter, and max sessions.
 - Sessions inspected and tool calls analyzed.
 - Patterns across sessions or providers.
+- Review candidates that were not promoted, if they materially affected confidence or would be useful to inspect next.
+- Benign/noise categories suppressed from findings, when that explains why failure-looking text was ignored.
 - Suggested next experiments or validation steps.
 - `mnemonai` data gaps, if any, that blocked stronger analysis.
 

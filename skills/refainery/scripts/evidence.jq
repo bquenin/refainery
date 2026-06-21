@@ -99,8 +99,9 @@ def classify_result:
 | .messages as $messages
 | (
     $messages
-    | map(select(.role == "tool_call" and .tool_call_id != null))
+    | map(select(.role == "tool_call" and (.tool_call_id // "") != ""))
     | map({key: .tool_call_id, value: .})
+    # tool_call_id is unique per provider; on a (contract-violating) duplicate, from_entries keeps the last call
     | from_entries
   ) as $calls
 | $messages[]
@@ -108,7 +109,7 @@ def classify_result:
 | . as $result
 | ($result | classify_result) as $classification
 | select($classification.include)
-| ($calls[($result.tool_call_id // "")] // null) as $call
+| (($result.tool_call_id // "") | if . == "" then null else ($calls[.] // null) end) as $call
 | {
     session: {
       provider: $root.conversation.provider,

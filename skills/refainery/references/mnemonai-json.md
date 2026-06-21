@@ -16,7 +16,7 @@ Verify the installed binary supports the required headless contract:
 "$MNEMONAI_BIN" list --json --since 7d --cwd . --limit 1
 ```
 
-If that command fails with an unexpected `--json`, `--since`, or `--cwd` argument, or `"$MNEMONAI_BIN" --version` reports a version older than `0.12.3`, the installed `mnemonai` is too old. Build an updated binary from source in a temporary checkout and use it for the session:
+If that command fails with an unexpected `--json`, `--since`, or `--cwd` argument, or `"$MNEMONAI_BIN" --version` reports a version older than `0.12.3` by semantic version (compare numerically, so `0.12.10` is newer than `0.12.3`), the installed `mnemonai` is too old. Build an updated binary from source in a temporary checkout and use it for the session:
 
 ```bash
 workdir="$(mktemp -d "${TMPDIR:-/tmp}/mnemonai.XXXXXX")"
@@ -54,7 +54,7 @@ Show one session:
 - `conversation`: the same summary shape used by `list --json`.
 - `messages`: ordered normalized messages.
 
-When candidate sessions exist, load one before deep analysis and verify that `messages[]` is ordered and carries the always-present fields `index`, `entry_index`, `tool_call_id`, and `tool_name`. The `tool_result_status`, `tool_result_exit_code`, and `tool_result_error` fields are best-effort and absent for many providers/sessions, so do not treat their absence as a failure. Decide the build fallback from the binary itself — argument rejection of `--json`/`--since`/`--cwd`, or version older than `0.12.3` — not from which optional fields a given session happens to include. Only when the up-to-date binary cannot expose the ordering/pairing fields (`index`, `tool_call_id`) for a session is that a provider/extraction gap to report in the findings.
+When candidate sessions exist, load one before deep analysis and verify that `messages[]` is ordered and carries the always-present fields `index`, `entry_index`, `tool_call_id`, and `tool_name`. The `tool_result_status`, `tool_result_exit_code`, and `tool_result_error` fields are best-effort and absent for many providers/sessions, so do not treat their absence as a failure. Decide the build fallback from the binary itself — argument rejection of `--json`/`--since`/`--cwd`, or a semantic version older than `0.12.3` — not from which optional fields a given session happens to include. Only when the up-to-date binary cannot expose the ordering/pairing fields (`index`, `tool_call_id`) for a session is that a provider/extraction gap to report in the findings.
 
 ## Conversation Summary Fields
 
@@ -135,9 +135,6 @@ Find likely failing tool results:
       ) as $structured_failure
     | (
         $structured_failure == false
-        and .tool_result_error == null
-        and .tool_result_status == null
-        and $normalized_exit_code == null
         and ($text | test("(?im)(^|\\n)(traceback|fatal:|error:|usage:|permission denied|command not found|no such file)"))
       ) as $text_candidate
     | select($structured_failure or $text_candidate)
@@ -153,7 +150,7 @@ Find likely failing tool results:
       }'
 ```
 
-Prefer the structured `tool_result_error`, `tool_result_status`, and `tool_result_exit_code` fields. The regex on `$text` is only a fallback for command output that exposes no structured marker. It is anchored to a full line (`^...$`) so quoted text inside a file read or diff does not register as a command failure. Treat `signal: "text_candidate"` as low-confidence until surrounding messages confirm it; help output commonly contains `Usage:` despite succeeding.
+`$structured_failure` (high confidence) is driven by the structured `tool_result_error`, `tool_result_status`, and `tool_result_exit_code` fields. The `$text` regex produces a low-confidence `text_candidate` only when the structured fields do not already indicate a failure — so a result whose structured fields say success (for example `tool_result_error: false`) but whose text shows a traceback or `command not found` is still surfaced for review rather than dropped. The exit-code regex is anchored to a full line (`^...$`) so quoted text inside a file read or diff does not register as a command failure. Treat `signal: "text_candidate"` as low-confidence until surrounding messages confirm it; help output commonly contains `Usage:` despite succeeding.
 
 Find repeated tool names:
 

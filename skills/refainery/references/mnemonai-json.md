@@ -123,14 +123,18 @@ Summarize tool events without printing full outputs:
 
 Find tool results that need triage:
 
-Run the bundled helper instead of retyping the jq (avoids copy/escape mistakes):
+Run the bundled helper instead of retyping the jq (avoids copy/escape mistakes). Invoke it by the refainery skill's absolute path — a bare `scripts/...` will not resolve, because your shell cwd is the project under analysis, not the skill directory:
 
 ```bash
-# from the skill directory; resolves the binary from $MNEMONAI_BIN or PATH
-scripts/triage.sh <id-or-path>
+# point at wherever this skill is installed (it is the dir containing SKILL.md):
+skill=~/.codex/skills/refainery   # or ~/.claude/skills/refainery
 
-# or pass an explicit binary (for example a freshly built checkout)
-MNEMONAI_BIN="$MNEMONAI_BIN" scripts/triage.sh <id-or-path>
+# uses the installed mnemonai (or $MNEMONAI_BIN) by default
+"$skill/scripts/triage.sh" <id-or-path>
+
+# if step 1 built an updated binary, pass it explicitly so triage uses it too
+# (a fresh shell will not have inherited MNEMONAI_BIN from step 1)
+MNEMONAI_BIN=/path/to/checkout/target/debug/mnemonai "$skill/scripts/triage.sh" <id-or-path>
 ```
 
 It runs `mnemonai show --json` and emits one object per flagged tool_result with `index`, `tool_call_id`, `signal`, `confidence`, `exit_code`, `tool_result_status`, `tool_result_error`, and a truncated `text`. The classification logic lives in `scripts/triage.jq` — read or edit that file rather than re-deriving the query.

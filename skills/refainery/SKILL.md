@@ -12,19 +12,21 @@ Prefer `mnemonai` as the session source. Do not parse provider-specific session 
 ## Workflow
 
 1. Verify `mnemonai` headless support.
-   - Run `mnemonai list --json --limit 1` before starting analysis.
-   - If the installed binary rejects `--json`, build an updated `mnemonai` from source: clone `https://github.com/bquenin/mnemonai`, run `cargo build` in the checkout, and use its `target/debug/mnemonai` binary for the session. See `references/mnemonai-json.md` for the exact commands.
+   - Set `MNEMONAI_BIN="${MNEMONAI_BIN:-mnemonai}"` and use that binary for every `mnemonai` command in the analysis.
+   - Run `"$MNEMONAI_BIN" list --json --since 7d --cwd . --limit 1` before starting analysis. This verifies JSON output plus the scope flags this skill relies on.
+   - When candidate sessions exist, load one with `"$MNEMONAI_BIN" show <id-or-path> --json` and confirm the JSON exposes ordered messages and tool-trace fields such as `index`, `entry_index`, `block_index`, `tool_call_id`, `tool_result_status`, `tool_result_exit_code`, and `tool_result_error` when provider data is available.
+   - If the installed binary rejects `--json`, `--since`, or `--cwd`, or if `show --json` lacks the required headless fields, build an updated `mnemonai` from source in a temporary directory and set `MNEMONAI_BIN` to that checkout's `target/debug/mnemonai`. See `references/mnemonai-json.md` for the exact commands.
    - If a checkout cannot be built (no network, no toolchain), stop and report that the skill needs `mnemonai` headless JSON support.
 
 2. Define the scope from the user's request.
-   - If no scope is provided, inspect the past 7 days with `mnemonai list --json --since 7d --limit 50`.
-   - For current-repo analysis, start with `mnemonai list --json --cwd . --since 30d --limit 50`.
-   - For cross-agent or global analysis, start with `mnemonai list --json --since 7d --limit 50`.
+   - If no scope is provided, inspect the past 7 days with `"$MNEMONAI_BIN" list --json --since 7d --limit 50`.
+   - For current-repo analysis, start with `"$MNEMONAI_BIN" list --json --cwd . --since 30d --limit 50`.
+   - For cross-agent or global analysis, start with `"$MNEMONAI_BIN" list --json --since 7d --limit 50`.
    - For a named skill or tool, prefer `--since 30d --limit 200`, then filter summaries, previews, tool names, and nearby text for that skill/tool.
    - Filter by provider, cwd, summary, preview, explicit time window, or explicit session path when the user gives one.
 
 3. Load candidate sessions.
-   - Use `mnemonai show <id-or-path> --json` for each selected session.
+   - Use `"$MNEMONAI_BIN" show <id-or-path> --json` for each selected session.
    - Keep raw transcripts out of the final response unless the user asks for exact excerpts.
    - If a session appears relevant but the JSON lacks tool trace fields, note that as a `mnemonai` extraction gap.
 

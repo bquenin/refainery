@@ -4,28 +4,35 @@ Use `mnemonai` as the normalized session source.
 
 ## Commands
 
-Verify the installed binary supports headless JSON:
+Set the binary once, then use the same value for every command:
 
 ```bash
-mnemonai list --json --limit 1
+MNEMONAI_BIN="${MNEMONAI_BIN:-mnemonai}"
 ```
 
-If that command fails with an unexpected `--json` argument, the installed `mnemonai` is too old. Build an updated binary from source and use it for the session:
+Verify the installed binary supports the required headless contract:
 
 ```bash
-git clone https://github.com/bquenin/mnemonai
-cd mnemonai
-cargo build
-target/debug/mnemonai list --json --limit 1
+"$MNEMONAI_BIN" list --json --since 7d --cwd . --limit 1
+```
+
+If that command fails with an unexpected `--json`, `--since`, or `--cwd` argument, the installed `mnemonai` is too old. Build an updated binary from source in a temporary checkout and use it for the session:
+
+```bash
+workdir="$(mktemp -d "${TMPDIR:-/tmp}/mnemonai.XXXXXX")"
+git clone https://github.com/bquenin/mnemonai "$workdir/mnemonai"
+cargo build --manifest-path "$workdir/mnemonai/Cargo.toml"
+MNEMONAI_BIN="$workdir/mnemonai/target/debug/mnemonai"
+"$MNEMONAI_BIN" list --json --since 7d --cwd . --limit 1
 ```
 
 List sessions:
 
 ```bash
-mnemonai list --json --limit 50
-mnemonai list --json --since 7d --limit 50
-mnemonai list --json --cwd . --since 30d --limit 50
-mnemonai list --jsonl --provider codex --limit 100
+"$MNEMONAI_BIN" list --json --limit 50
+"$MNEMONAI_BIN" list --json --since 7d --limit 50
+"$MNEMONAI_BIN" list --json --cwd . --since 30d --limit 50
+"$MNEMONAI_BIN" list --jsonl --provider codex --limit 100
 ```
 
 Scope flags:
@@ -39,13 +46,15 @@ Scope flags:
 Show one session:
 
 ```bash
-mnemonai show <id-or-path> --json
+"$MNEMONAI_BIN" show <id-or-path> --json
 ```
 
 `show --json` returns:
 
 - `conversation`: the same summary shape used by `list --json`.
 - `messages`: ordered normalized messages.
+
+When candidate sessions exist, load one before deep analysis and verify that `messages[]` exposes ordering and tool-trace fields. Missing fields from an old binary should trigger the temporary build fallback above. Missing fields from the updated binary are a provider/extraction gap to report in the findings.
 
 ## Conversation Summary Fields
 
@@ -96,7 +105,7 @@ Use adjacent assistant text to infer intent:
 Summarize tool events without printing full outputs:
 
 ```bash
-mnemonai show "$session" --json |
+"$MNEMONAI_BIN" show "$session" --json |
   jq '.messages[]
     | select(.role == "tool_call" or .role == "tool_result")
     | {
@@ -113,7 +122,7 @@ mnemonai show "$session" --json |
 Find likely failing tool results:
 
 ```bash
-mnemonai show "$session" --json |
+"$MNEMONAI_BIN" show "$session" --json |
   jq '.messages[]
     | select(.role == "tool_result")
     | (.text // "") as $text
@@ -133,7 +142,7 @@ Prefer the structured `tool_result_error`, `tool_result_status`, and `tool_resul
 Find repeated tool names:
 
 ```bash
-mnemonai show "$session" --json |
+"$MNEMONAI_BIN" show "$session" --json |
   jq '[.messages[] | select(.role == "tool_call") | .tool_name]
     | group_by(.)
     | map({tool: .[0], count: length})

@@ -69,8 +69,8 @@ Prefer `mnemonai` as the session source. Do not parse provider-specific session 
 8. Recommend improvements.
    - Prefer small, testable changes with direct evidence from sessions.
    - Separate skill edits, CLI/tool changes, rules/hooks, and extraction improvements.
-   - Prefer setup/rule guidance for repeated shell portability mistakes; prefer skill edits for repeated tool-ordering or interpretation mistakes; prefer `mnemonai` changes only when evidence is missing, ambiguous, or too hard to reconstruct from JSON.
-   - Do not recommend automation or hooks until the same issue repeats across sessions or causes a high-severity failure.
+   - For repeated shell-portability mistakes, prefer a documented baseline rule (a cheap docs/setup fix, not an enforcement hook); for repeated tool-ordering or interpretation mistakes, prefer skill edits; prefer `mnemonai` changes only when evidence is missing, ambiguous, or too hard to reconstruct from JSON. This refines the step 7 precedence (documentation before automation before tool changes) for common cases.
+   - Do not recommend an enforcement hook until the same issue repeats across sessions or causes a high-severity failure; a documented rule is fine sooner.
    - Do not apply edits unless the user asks.
    - If recommending a skill change, inspect the relevant `SKILL.md` first.
    - If recommending a code or CLI change, inspect the owning repo before proposing exact implementation details.

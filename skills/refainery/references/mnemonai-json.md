@@ -134,11 +134,11 @@ Find tool results that need triage:
         or ($status | test("(?i)^(error|errored|failed|failure|cancelled|canceled)$"))
         or ($normalized_exit_code != null and $normalized_exit_code != 0)
       ) as $confirmed_failure
-    | ($text | test("(?im)(^|\\n)(traceback|fatal:|panic:|exception:|permission denied|command not found|no such file|zsh:|bash:|sh:)")) as $strong_runtime_signal
+    | ($text | test("(?im)(^|\\n)(traceback|error:|fatal:|panic:|exception:|permission denied|command not found|no such file|zsh:|bash:|sh:)")) as $strong_runtime_signal
     | ($text | test("(?im)(^|\\n)(error\\[[A-Za-z0-9_-]+\\]:|compilation failed|could not compile)")) as $compiler_signal
-    | ($text | test("(?im)usage:")) as $usage_signal
-    | ($text | test("(?im)(invalid|unknown option|unrecognized option|missing required|required argument|too few arguments)")) as $arg_failure_signal
-    | ($text | test("(?m)^(diff --git|@@ |--- a/|\\+\\+\\+ b/)")) as $looks_like_diff
+    | ($text | test("(?im)(^|\\n)\\s*usage:")) as $usage_signal
+    | ($text | test("(?im)(illegal option|unknown option|unrecognized option|unrecognized argument|invalid option|invalid choice|invalid argument|no such option|missing required|too few arguments|unexpected argument)")) as $arg_failure_signal
+    | ($text | test("(?m)^(?:[0-9]+\\t)?(diff --git|@@ |--- a/|\\+\\+\\+ b/)")) as $looks_like_diff
     | (
         $confirmed_failure == false
         and ($looks_like_diff == false)
@@ -161,7 +161,7 @@ Find tool results that need triage:
       }'
 ```
 
-`confirmed_failure` is driven by structured `tool_result_error`, `tool_result_status`, and `tool_result_exit_code` fields. `review_candidate` captures strong text-only signals such as tracebacks, shell errors, compiler errors, permission failures, missing files, and invalid usage. The helper intentionally does not flag plain successful help output just because it contains `Usage:`, or successful diff output just because quoted lines contain failure text. Treat `signal: "review_candidate"` as low-confidence until surrounding messages confirm impact.
+`confirmed_failure` is driven by structured `tool_result_error`, `tool_result_status`, and `tool_result_exit_code` fields. `review_candidate` captures strong text-only signals such as tracebacks, line-leading `error:`/`fatal:` diagnostics, compiler errors, shell errors, permission failures, missing files, and argument/usage errors. To reduce noise it gates `usage:` behind a co-occurring argument-error phrase, line-anchors the diagnostic signals, and skips git-style diff output — but it is still a heuristic over text, so a successful command whose output legitimately contains a traceback or an `error:` line (for example a log or file it printed) can surface. Treat `signal: "review_candidate"` as low-confidence until surrounding messages confirm impact, and prefer surfacing a borderline result over silently dropping a real failure.
 
 Find repeated tool names:
 

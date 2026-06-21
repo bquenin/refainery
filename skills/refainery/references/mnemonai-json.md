@@ -4,7 +4,7 @@ Use `mnemonai` as the normalized session source.
 
 ## Commands
 
-Set the binary once, then use the same value for every command:
+Set the binary once, then use the same value for every command. Shell variables may not persist between separate commands in every agent — keep each `mnemonai` call in the same shell as this assignment, or substitute the resolved absolute path directly:
 
 ```bash
 MNEMONAI_BIN="${MNEMONAI_BIN:-mnemonai}"
@@ -20,7 +20,7 @@ If that command fails with an unexpected `--json`, `--since`, or `--cwd` argumen
 
 ```bash
 workdir="$(mktemp -d "${TMPDIR:-/tmp}/mnemonai.XXXXXX")"
-git clone https://github.com/bquenin/mnemonai "$workdir/mnemonai"
+git clone --depth 1 https://github.com/bquenin/mnemonai "$workdir/mnemonai"
 cargo build --manifest-path "$workdir/mnemonai/Cargo.toml"
 MNEMONAI_BIN="$workdir/mnemonai/target/debug/mnemonai"
 "$MNEMONAI_BIN" list --json --since 7d --cwd . --limit 1
@@ -54,7 +54,7 @@ Show one session:
 - `conversation`: the same summary shape used by `list --json`.
 - `messages`: ordered normalized messages.
 
-When candidate sessions exist, load one before deep analysis and verify that `messages[]` exposes ordering and tool-trace fields. Missing fields from an old binary should trigger the temporary build fallback above. Missing fields from the updated binary are a provider/extraction gap to report in the findings.
+When candidate sessions exist, load one before deep analysis and verify that `messages[]` is ordered and carries the always-present fields `index`, `entry_index`, `tool_call_id`, and `tool_name`. The `tool_result_status`, `tool_result_exit_code`, and `tool_result_error` fields are best-effort and absent for many providers/sessions, so do not treat their absence as a failure. Decide the build fallback from the binary itself — argument rejection of `--json`/`--since`/`--cwd`, or an old `--version` — not from which optional fields a given session happens to include. Only when the up-to-date binary cannot expose the ordering/pairing fields (`index`, `tool_call_id`) for a session is that a provider/extraction gap to report in the findings.
 
 ## Conversation Summary Fields
 

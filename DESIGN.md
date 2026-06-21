@@ -1,6 +1,6 @@
 # refainery
 
-refainery is a Codex skill for retrospective analysis of AI coding agent sessions.
+refainery is an agent skill for retrospective analysis of AI coding agent sessions. The same `skills/refainery/` package works in both Codex and Claude Code: both read `SKILL.md`, and `agents/openai.yaml` is Codex-only UI metadata that Claude Code ignores.
 
 It uses `mnemonai` as the session extraction layer and focuses the agent on answering one question:
 
@@ -33,6 +33,7 @@ The previous Python CLI implementation has been retired on this branch. The firs
 
 ### refainery skill
 
+- Preflight the `mnemonai` binary for headless JSON support, building it from source into a temporary checkout when the installed binary is too old.
 - Select relevant sessions with `mnemonai list --json`.
 - Load sessions with `mnemonai show <id-or-path> --json`.
 - Reconstruct tool traces by pairing `tool_call` and `tool_result` messages.

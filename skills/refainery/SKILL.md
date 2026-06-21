@@ -56,7 +56,7 @@ Prefer `mnemonai` as the session source. Do not parse provider-specific session 
    - For a quick compact scan of which results are flagged, run `triage.sh` (a thin projection over `evidence.sh`) instead of retyping the jq. Invoke it by the skill's absolute path (your shell cwd is the project under analysis, so a bare `scripts/...` will not resolve): `<refainery-skill-dir>/scripts/triage.sh <id-or-path>` — typically `~/.codex/skills/refainery/scripts/triage.sh` or `~/.claude/skills/refainery/scripts/triage.sh`. If step 1 built an updated binary, prefix `MNEMONAI_BIN=<that binary>` so triage uses it too. See `references/mnemonai-json.md`.
    - Confirmed failures: structured errors, non-zero exit codes, failing statuses, or text-only failures confirmed by surrounding intent and recovery behavior.
    - Review candidates: strong text-only signals such as tracebacks, shell errors, compiler errors, permission failures, missing files, or invalid usage when structured fields are missing or inconclusive.
-   - Benign/noise: successful help output, expected negative tests, docs/source text containing failure words, exploratory misses that immediately recover, and missing results from the currently active/latest session.
+   - Benign/noise: successful help output, expected negative tests, successful source/doc/session-inspection output containing failure words, exploratory misses that immediately recover, and missing results from the currently active/latest session.
    - Only promote a review candidate into the main findings when nearby messages show retry, abandonment, user correction, wrong success claim, or a repeated pattern across sessions.
 
 7. Classify likely causes.

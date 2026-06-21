@@ -51,6 +51,26 @@ def next_text($messages; $index; $role):
   ][0]) as $message
   | message_preview($message; 700);
 
+def call_command($call):
+  if $call == null then ""
+  else (($call.tool_input.cmd // $call.tool_input.command // "") | tostring)
+  end;
+
+def inspection_like_call($call):
+  if $call == null then false
+  elif (($call.tool_name // "") | test("^(Read|ReadFile)$")) then true
+  else
+    (call_command($call)) as $cmd
+    | (
+        ($cmd | test("(?im)(^|[;&|]\\s*|&&\\s*)(sed|cat|nl|rg|grep|find|ls)\\b"))
+        or ($cmd | test("(?im)(^|[;&|]\\s*|&&\\s*)git\\s+(show|diff|log|grep)\\b"))
+        or ($cmd | test("(?i)(mnemonai\\s+(show|list)|/scripts/(evidence|triage)\\.sh|\\b(evidence|triage)\\.sh\\b)"))
+      )
+  end;
+
+def recovery_signal($message):
+  (($message.text // "") | test("(?i)(rerun|rerunning|retry|try again|trying again|not supported|unsupported|permission denied|command not found|no such file|invalid option|parse error|quoting typo|bad jq|fixing|correcting|work around|isn.t supported|is not supported)"));
+
 def classify_result:
   (.text // "") as $text
   | (($text | capture("(?m)^(?:Process exited with code|Exit code) (?<code>[0-9]+)$")? | .code | tonumber) // null) as $text_exit_code
@@ -92,6 +112,8 @@ def classify_result:
         if $log_error_signal then "log_error_signal" else empty end,
         if ($usage_signal and $arg_failure_signal) then "argument_usage_signal" else empty end
       ],
+      confirmed_failure: $confirmed_failure,
+      review_candidate: $review_candidate,
       include: ($confirmed_failure or $review_candidate)
     };
 
@@ -108,8 +130,18 @@ def classify_result:
 | select(.role == "tool_result")
 | . as $result
 | ($result | classify_result) as $classification
-| select($classification.include)
 | (($result.tool_call_id // "") | if . == "" then null else ($calls[.] // null) end) as $call
+| previous_text($messages; $result.index; "user") as $previous_user
+| previous_text($messages; $result.index; "assistant") as $previous_assistant
+| next_text($messages; $result.index; "assistant") as $next_assistant
+| (
+    $classification.confirmed_failure
+    or (
+      $classification.review_candidate
+      and ((inspection_like_call($call) and (recovery_signal($next_assistant) | not)) | not)
+    )
+  ) as $include
+| select($include)
 | {
     session: {
       provider: $root.conversation.provider,
@@ -148,9 +180,9 @@ def classify_result:
       text: (($result.text // "") | truncate_string(1600))
     },
     context: {
-      previous_user: previous_text($messages; $result.index; "user"),
-      previous_assistant: previous_text($messages; $result.index; "assistant"),
-      next_assistant: next_text($messages; $result.index; "assistant")
+      previous_user: $previous_user,
+      previous_assistant: $previous_assistant,
+      next_assistant: $next_assistant
     },
     pairing: {
       has_call: ($call != null)

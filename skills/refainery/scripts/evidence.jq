@@ -54,8 +54,10 @@ def next_text($messages; $index; $role):
 def call_command($call):
   if $call == null then ""
   else
-    ($call.tool_input.cmd // $call.tool_input.command // "") as $raw
-    | if ($raw | type) == "array" then
+    # tool_input is usually an object, but some providers store it as a raw string; guard the type.
+    (if (($call.tool_input | type) == "object") then ($call.tool_input.cmd // $call.tool_input.command) else null end) as $raw
+    | if $raw == null then ""
+      elif ($raw | type) == "array" then
         # shell wrapper like ["bash","-lc","<script>"]: use the script after a -c/-lc flag, else join
         ([$raw | to_entries[] | select((.value | type) == "string" and (.value | test("^-[A-Za-z]*c$"))) | .key] | last) as $ci
         | if ($ci != null) and ($raw[$ci + 1] != null) then ($raw[$ci + 1] | tostring)
@@ -154,11 +156,26 @@ def classify_result:
 | previous_text($messages; $result.index; "user") as $previous_user
 | previous_text($messages; $result.index; "assistant") as $previous_assistant
 | next_text($messages; $result.index; "assistant") as $next_assistant
+# Benign non-failure states that exit nonzero / set an error marker but are not agent struggles:
+# CI checks still pending or absent, and AskUserQuestion (a user interaction, including declines).
 | (
-    $classification.confirmed_failure
+    (($call.tool_name // "") == "AskUserQuestion")
     or (
-      $classification.review_candidate
-      and ((inspection_like_call($call) and (recovery_signal($next_assistant) | not)) | not)
+      (call_command($call) | test("(?i)\\bgh\\s+pr\\s+checks\\b"))
+      and (
+        ($classification.exit_code == 8)
+        or (($result.text // "") | test("(?i)no checks (reported|on|found)|no required checks"))
+      )
+    )
+  ) as $benign_state
+| (
+    ($benign_state | not)
+    and (
+      $classification.confirmed_failure
+      or (
+        $classification.review_candidate
+        and ((inspection_like_call($call) and (recovery_signal($next_assistant) | not)) | not)
+      )
     )
   ) as $include
 | select($include)

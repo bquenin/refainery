@@ -121,49 +121,17 @@ Summarize tool events without printing full outputs:
 
 Find tool results that need triage:
 
+Run the bundled helper instead of retyping the jq (avoids copy/escape mistakes):
+
 ```bash
-"$MNEMONAI_BIN" show "$session" --json |
-  jq '.messages[]
-    | select(.role == "tool_result")
-    | (.text // "") as $text
-    | (($text | capture("(?m)^(?:Process exited with code|Exit code) (?<code>[0-9]+)$")? | .code | tonumber) // null) as $exit_code
-    | (.tool_result_exit_code // $exit_code) as $normalized_exit_code
-    | ((.tool_result_status // "") | tostring) as $status
-    | (
-        .tool_result_error == true
-        or ($status | test("(?i)^(error|errored|failed|failure|cancelled|canceled)$"))
-        or ($normalized_exit_code != null and $normalized_exit_code != 0)
-      ) as $confirmed_failure
-    | ($text | test("(?im)(^|\\n)(traceback|error:|fatal:|panic:|exception:|permission denied|command not found|no such file|zsh:|bash:|sh:)")) as $strong_runtime_signal
-    | ($text | test("(?im)(^|\\n)(error\\[[A-Za-z0-9_-]+\\]:|compilation failed|could not compile)")) as $compiler_signal
-    | ($text | test("(?i)(sandbox denied|failed in sandbox)")) as $sandbox_signal
-    | ($text | test("(?m)^\\s*(ERROR|FATAL|PANIC)\\b")) as $log_error_signal
-    | ($text | test("(?im)(^|\\n)\\s*usage:")) as $usage_signal
-    | ($text | test("(?im)(illegal option|unknown option|unrecognized option|unrecognized argument|invalid option|invalid choice|invalid argument|no such option|missing required|too few arguments|unexpected argument)")) as $arg_failure_signal
-    | ($text | test("(?m)^(?:[0-9]+\\t)?(diff --git|@@ |--- a/|\\+\\+\\+ b/)")) as $looks_like_diff
-    | (
-        $confirmed_failure == false
-        and ($looks_like_diff == false)
-        and (
-          $strong_runtime_signal
-          or $compiler_signal
-          or $sandbox_signal
-          or $log_error_signal
-          or ($usage_signal and $arg_failure_signal)
-        )
-      ) as $review_candidate
-    | select($confirmed_failure or $review_candidate)
-    | {
-        index,
-        tool_call_id,
-        signal: (if $confirmed_failure then "confirmed_failure" else "review_candidate" end),
-        confidence: (if $confirmed_failure then "high" else "low" end),
-        exit_code: $normalized_exit_code,
-        tool_result_status,
-        tool_result_error,
-        text: ($text | .[0:500])
-      }'
+# from the skill directory; resolves the binary from $MNEMONAI_BIN or PATH
+scripts/triage.sh <id-or-path>
+
+# or pass an explicit binary (for example a freshly built checkout)
+MNEMONAI_BIN="$MNEMONAI_BIN" scripts/triage.sh <id-or-path>
 ```
+
+It runs `mnemonai show --json` and emits one object per flagged tool_result with `index`, `tool_call_id`, `signal`, `confidence`, `exit_code`, `tool_result_status`, `tool_result_error`, and a truncated `text`. The classification logic lives in `scripts/triage.jq` — read or edit that file rather than re-deriving the query.
 
 `confirmed_failure` is driven by structured `tool_result_error`, `tool_result_status`, and `tool_result_exit_code` fields. `review_candidate` captures strong text-only signals such as tracebacks, line-leading `error:`/`fatal:` diagnostics, compiler errors, shell errors, sandbox denials, uppercase log-level `ERROR`/`FATAL`/`PANIC` lines, permission failures, missing files, and argument/usage errors. To reduce noise it gates `usage:` behind a co-occurring argument-error phrase, line-anchors the diagnostic signals, and skips git-style diff output — but it is still a heuristic over text, so a successful command whose output legitimately contains a traceback or an `error:` line (for example a log or file it printed) can surface. Treat `signal: "review_candidate"` as low-confidence until surrounding messages confirm impact, and prefer surfacing a borderline result over silently dropping a real failure.
 

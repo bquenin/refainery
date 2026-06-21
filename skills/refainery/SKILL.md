@@ -51,6 +51,7 @@ Prefer `mnemonai` as the session source. Do not parse provider-specific session 
    - Avoid counting a missing result from the currently active/latest session as a finding unless nearby messages show the tool was abandoned or cancelled.
 
 6. Triage detected signals before writing findings.
+   - Run `scripts/triage.sh <id-or-path>` to bucket a session's tool results into `confirmed_failure` and `review_candidate` automatically; do not retype the jq by hand. See `references/mnemonai-json.md`.
    - Confirmed failures: structured errors, non-zero exit codes, failing statuses, or text-only failures confirmed by surrounding intent and recovery behavior.
    - Review candidates: strong text-only signals such as tracebacks, shell errors, compiler errors, permission failures, missing files, or invalid usage when structured fields are missing or inconclusive.
    - Benign/noise: successful help output, expected negative tests, docs/source text containing failure words, exploratory misses that immediately recover, and missing results from the currently active/latest session.

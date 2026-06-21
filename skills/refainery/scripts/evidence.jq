@@ -51,6 +51,46 @@ def next_text($messages; $index; $role):
   ][0]) as $message
   | message_preview($message; 700);
 
+def call_command($call):
+  if $call == null then ""
+  else
+    ($call.tool_input.cmd // $call.tool_input.command // "") as $raw
+    | if ($raw | type) == "array" then
+        # shell wrapper like ["bash","-lc","<script>"]: use the script after a -c/-lc flag, else join
+        ([$raw | to_entries[] | select((.value | type) == "string" and (.value | test("^-[A-Za-z]*c$"))) | .key] | last) as $ci
+        | if ($ci != null) and ($raw[$ci + 1] != null) then ($raw[$ci + 1] | tostring)
+          else ($raw | map(tostring) | join(" ")) end
+      else ($raw | tostring) end
+  end;
+
+# A pipeline/chain stage that only reads/inspects content.
+def inspection_segment:
+  test("(?i)^(sed|cat|nl|rg|grep|find|ls|head|tail|less|more)\\b")
+  or test("(?i)^git\\s+(show|diff|log|grep|status|cat-file)\\b")
+  or test("(?i)^mnemonai\\s+(show|list)\\b")
+  or test("(?i)^\\S*(evidence|triage)\\.sh\\b");
+
+# Reads plus harmless glue (env assignments, builtins, text processors) that cannot themselves be the failing program.
+def benign_segment:
+  inspection_segment
+  or test("(?i)^[A-Za-z_][A-Za-z0-9_]*=")
+  or test("(?i)^(cd|echo|printf|export|pwd|true|false|set|:|sort|uniq|wc|cut|tr|column|awk|jq)\\b");
+
+def inspection_like_call($call):
+  if $call == null then false
+  elif (($call.tool_name // "") | test("^(Read|ReadFile)$")) then true
+  else
+    # Treat as inspection only when EVERY stage is benign and at least one actually reads — so a chain/pipe into a
+    # real program (e.g. `cat x | python y`, `ls && cargo build`) whose later stage failed is NOT suppressed.
+    ([call_command($call) | splits("\\|\\||&&|;|\\||\\n") | gsub("^\\s+|\\s+$"; "") | select(. != "")]) as $segments
+    | ($segments | length) > 0
+      and ($segments | any(inspection_segment))
+      and ($segments | all(benign_segment))
+  end;
+
+def recovery_signal($message):
+  (($message.text // "") | test("(?i)(rerun|retry|try again|trying again|not supported|unsupported|isn.t supported|does not support|doesn.t support|permission denied|command not found|no such file|invalid option|parse error|quoting typo|bad jq|fixing|correcting|work ?around|abandon|gave up|give up|does not work|doesn.t work|that failed)"));
+
 def classify_result:
   (.text // "") as $text
   | (($text | capture("(?m)^(?:Process exited with code|Exit code) (?<code>[0-9]+)$")? | .code | tonumber) // null) as $text_exit_code
@@ -92,6 +132,8 @@ def classify_result:
         if $log_error_signal then "log_error_signal" else empty end,
         if ($usage_signal and $arg_failure_signal) then "argument_usage_signal" else empty end
       ],
+      confirmed_failure: $confirmed_failure,
+      review_candidate: $review_candidate,
       include: ($confirmed_failure or $review_candidate)
     };
 
@@ -108,8 +150,18 @@ def classify_result:
 | select(.role == "tool_result")
 | . as $result
 | ($result | classify_result) as $classification
-| select($classification.include)
 | (($result.tool_call_id // "") | if . == "" then null else ($calls[.] // null) end) as $call
+| previous_text($messages; $result.index; "user") as $previous_user
+| previous_text($messages; $result.index; "assistant") as $previous_assistant
+| next_text($messages; $result.index; "assistant") as $next_assistant
+| (
+    $classification.confirmed_failure
+    or (
+      $classification.review_candidate
+      and ((inspection_like_call($call) and (recovery_signal($next_assistant) | not)) | not)
+    )
+  ) as $include
+| select($include)
 | {
     session: {
       provider: $root.conversation.provider,
@@ -148,9 +200,9 @@ def classify_result:
       text: (($result.text // "") | truncate_string(1600))
     },
     context: {
-      previous_user: previous_text($messages; $result.index; "user"),
-      previous_assistant: previous_text($messages; $result.index; "assistant"),
-      next_assistant: next_text($messages; $result.index; "assistant")
+      previous_user: $previous_user,
+      previous_assistant: $previous_assistant,
+      next_assistant: $next_assistant
     },
     pairing: {
       has_call: ($call != null)

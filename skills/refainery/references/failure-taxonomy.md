@@ -93,6 +93,8 @@ Use when `mnemonai` cannot expose enough evidence:
 
 Use when the behavior was reasonable and no improvement is warranted.
 
+Severity and confidence are independent axes. Severity is the impact if the finding is real. Confidence is the strength of evidence that the finding is real. Rank findings by severity; use confidence to convey how sure you are.
+
 ## Severity
 
 High:
@@ -110,5 +112,19 @@ Medium:
 Low:
 
 - Isolated friction.
-- Weak evidence.
-- Improvement is speculative.
+- Minor, recoverable impact confined to a single session.
+
+## Confidence
+
+High:
+
+- Explicit failure status, non-zero exit code, or the same pattern reproduced across sessions.
+
+Medium:
+
+- Strong circumstantial signals (retries, approach switches, user correction) without an explicit failure marker.
+
+Low:
+
+- Weak or ambiguous evidence.
+- The improvement is speculative.

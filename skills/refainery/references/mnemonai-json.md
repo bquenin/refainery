@@ -10,10 +10,12 @@ Verify the installed binary supports headless JSON:
 mnemonai list --json --limit 1
 ```
 
-If that command fails with an unexpected `--json` argument, the installed `mnemonai` is too old. From an updated `mnemonai` checkout, use the checkout binary instead:
+If that command fails with an unexpected `--json` argument, the installed `mnemonai` is too old. Build an updated binary from source and use it for the session:
 
 ```bash
-cargo build --all
+git clone https://github.com/bquenin/mnemonai
+cd mnemonai
+cargo build
 target/debug/mnemonai list --json --limit 1
 ```
 
@@ -115,7 +117,7 @@ mnemonai show "$session" --json |
   jq '.messages[]
     | select(.role == "tool_result")
     | (.text // "") as $text
-    | ($text | capture("Process exited with code (?<code>[0-9]+)")? | .code | tonumber) as $exit_code
+    | (($text | capture("(?m)^Process exited with code (?<code>[0-9]+)$")? | .code | tonumber) // null) as $exit_code
     | (.tool_result_exit_code // $exit_code) as $normalized_exit_code
     | select(
         .tool_result_error == true
@@ -125,6 +127,8 @@ mnemonai show "$session" --json |
       )
     | {index, tool_call_id, exit_code: $normalized_exit_code, tool_result_status, tool_result_error, text: ($text | .[0:500])}'
 ```
+
+Prefer the structured `tool_result_error`, `tool_result_status`, and `tool_result_exit_code` fields; the regex on `$text` is only a fallback for command output that exposes no structured exit code. It is anchored to a full line (`^...$`) so that the phrase quoted inside a file read or diff does not register as a command failure. Always confirm a flagged result against its surrounding messages before treating it as a real struggle.
 
 Find repeated tool names:
 

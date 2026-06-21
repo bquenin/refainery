@@ -1,6 +1,6 @@
 ---
 name: refainery
-description: Analyze AI coding agent session history to find where models struggle with tool calls, scripts, rules, hooks, skills, CLIs, or workflows. Use when asked to review recent Claude/Codex/Cursor sessions, diagnose repeated tool failures, identify missing skill instructions, propose improvements to SKILL.md files or automation, or evaluate whether mnemonai/refainery needs better extraction data.
+description: Analyze AI coding agent session history to find where models struggle with tool calls, scripts, rules, hooks, skills, CLIs, or workflows. Use when asked to review recent Claude/Codex/Cursor sessions, diagnose repeated tool failures, identify missing skill instructions, or propose improvements to SKILL.md files or automation.
 ---
 
 # refainery
@@ -13,8 +13,8 @@ Prefer `mnemonai` as the session source. Do not parse provider-specific session 
 
 1. Verify `mnemonai` headless support.
    - Run `mnemonai list --json --limit 1` before starting analysis.
-   - If the installed binary rejects `--json`, locate an updated `mnemonai` checkout, build it, and use its `target/debug/mnemonai` binary for the session.
-   - If no updated binary is available, stop and report that the skill needs `mnemonai` headless JSON support.
+   - If the installed binary rejects `--json`, build an updated `mnemonai` from source: clone `https://github.com/bquenin/mnemonai`, run `cargo build` in the checkout, and use its `target/debug/mnemonai` binary for the session. See `references/mnemonai-json.md` for the exact commands.
+   - If a checkout cannot be built (no network, no toolchain), stop and report that the skill needs `mnemonai` headless JSON support.
 
 2. Define the scope from the user's request.
    - If no scope is provided, inspect the past 7 days with `mnemonai list --json --since 7d --limit 50`.
@@ -37,6 +37,7 @@ Prefer `mnemonai` as the session source. Do not parse provider-specific session 
 5. Detect struggle signals.
    - Tool result has `tool_result_error: true`, a non-zero `tool_result_exit_code`, or a failing `tool_result_status`.
    - Command-like tool output reports a non-zero exit status, traceback, permission failure, missing command, missing file, invalid usage, or another explicit failure.
+   - The agent claims success while the tool output shows failure (a silent wrong answer); treat this as a high-signal struggle.
    - Treat generic words such as `error`, `failed`, or `invalid` as weak signals when the same output also reports exit code 0; those words often appear in source code, filenames, or documentation.
    - The agent retries the same tool or command with small argument changes.
    - The agent abandons a tool path and switches to a different approach after failure.
@@ -55,6 +56,7 @@ Prefer `mnemonai` as the session source. Do not parse provider-specific session 
    - Model workflow issue: the agent had the data but planned poorly, over-searched, skipped verification, or failed to use an obvious existing pattern.
    - Provider/extraction gap: session JSON lacks IDs, statuses, outputs, timestamps, or context needed for reliable analysis.
    - Benign exploration: the behavior was reasonable discovery rather than actual struggle.
+   - When a failure fits more than one category, prefer the cheapest durable fix: documentation (skill) before automation (hook/rule) before tool changes (CLI/UX). Pick the category that matches the recommended fix.
 
 7. Recommend improvements.
    - Prefer small, testable changes with direct evidence from sessions.
@@ -65,13 +67,14 @@ Prefer `mnemonai` as the session source. Do not parse provider-specific session 
 
 ## Output
 
-Lead with ranked findings. For each finding include:
+Lead with findings ranked by severity, highest first. For each finding include:
 
 - Symptom: what the agent struggled with.
 - Evidence: provider/session identifier plus message indices or tool call IDs.
 - Likely cause: one category from the taxonomy.
 - Improvement: the smallest concrete change likely to reduce recurrence.
-- Confidence: high, medium, or low.
+- Severity: high, medium, or low — the impact if the finding is real (see `references/failure-taxonomy.md`).
+- Confidence: high, medium, or low — the strength of evidence that the finding is real (see `references/failure-taxonomy.md`).
 
 Then include:
 

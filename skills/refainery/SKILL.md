@@ -49,8 +49,10 @@ Prefer `mnemonai` as the session source. Do not parse provider-specific session 
    - Tool output is too noisy, truncated, unstructured, or missing an identifier needed for the next step.
    - The agent says it is trying again, confused, unable to find something, or that the previous attempt did not work.
    - Avoid counting a missing result from the currently active/latest session as a finding unless nearby messages show the tool was abandoned or cancelled.
+   - The `cursor-agent` provider records tool calls but not tool results, so its traces are call-only by design. Never treat a `cursor-agent` tool call's absent result as a struggle, abandonment, or cancellation.
 
 6. Triage detected signals before writing findings.
+   - Bucket a session's tool results with the bundled helper instead of retyping the jq. Invoke it by the skill's absolute path (your shell cwd is the project under analysis, so a bare `scripts/...` will not resolve): `<refainery-skill-dir>/scripts/triage.sh <id-or-path>` — typically `~/.codex/skills/refainery/scripts/triage.sh` or `~/.claude/skills/refainery/scripts/triage.sh`. If step 1 built an updated binary, prefix `MNEMONAI_BIN=<that binary>` so triage uses it too. See `references/mnemonai-json.md`.
    - Confirmed failures: structured errors, non-zero exit codes, failing statuses, or text-only failures confirmed by surrounding intent and recovery behavior.
    - Review candidates: strong text-only signals such as tracebacks, shell errors, compiler errors, permission failures, missing files, or invalid usage when structured fields are missing or inconclusive.
    - Benign/noise: successful help output, expected negative tests, docs/source text containing failure words, exploratory misses that immediately recover, and missing results from the currently active/latest session.

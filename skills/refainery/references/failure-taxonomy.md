@@ -104,6 +104,8 @@ Use when `mnemonai` cannot expose enough evidence:
 - Missing provider/model/session metadata.
 - Raw provider data is present but not normalized.
 
+Known limitation, not a per-session finding: the `cursor-agent` provider does not record tool results in its transcripts (only tool calls), so its traces are call-only. Note it once as a provider limitation if relevant; do not flag each cursor-agent tool call as a missing/cancelled result.
+
 ### Benign Exploration
 
 Use when the behavior was reasonable and no improvement is warranted.

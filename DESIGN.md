@@ -37,6 +37,7 @@ The previous Python CLI implementation has been retired on this branch. The firs
 - Load sessions with `mnemonai show <id-or-path> --json`.
 - Reconstruct tool traces by pairing `tool_call` and `tool_result` messages.
 - Detect struggle patterns such as retries, failed statuses, parse failures, abandoned approaches, noisy outputs, and user corrections.
+- Triage detected signals into confirmed failures, review candidates, and benign/noise before writing findings.
 - Classify likely root causes.
 - Recommend improvements to skills, scripts, hooks, rules, CLIs, or `mnemonai` extraction.
 

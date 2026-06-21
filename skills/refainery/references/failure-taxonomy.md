@@ -29,6 +29,16 @@ Low-signal:
 - Words like `error`, `failed`, or `invalid` appear inside successful command output, source code, filenames, or documentation.
 - Help text contains words like `usage:` after a successful command.
 
+## Triage Buckets
+
+Use these buckets before writing findings:
+
+- Confirmed failure: high-signal evidence from structured fields, non-zero exit codes, failing statuses, or text-only failure confirmed by retries, abandonment, user correction, or a wrong success claim.
+- Review candidate: strong text-only evidence such as tracebacks, shell errors, compiler errors, permission failures, missing files, or invalid usage without enough surrounding evidence to confirm impact.
+- Benign/noise: successful help output, expected negative tests, source/docs text containing failure words, exploratory checks that immediately recover, and incomplete traces from the currently active/latest session.
+
+Main findings should use confirmed failures. Mention review candidates separately when they affect confidence or suggest a useful next inspection.
+
 ## Root Cause Categories
 
 ### Skill Instruction Gap
@@ -61,6 +71,7 @@ Use when a local rule or hook could prevent repetition:
 - Commit/PR description policy enforcement.
 - Standard test/lint command discovery.
 - Shell portability rules for common agent mistakes, such as avoiding `path` in zsh, guarding globs, and preferring macOS-compatible flags.
+- When shell portability recurs, recommend a baseline rule: avoid GNU-only flags on macOS, quote globs, do not use `path` as a variable name in zsh, use `mktemp` for temp files, and prefer `rg` or portable POSIX commands.
 
 ### Environment/Access Gap
 

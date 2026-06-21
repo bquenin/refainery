@@ -121,7 +121,33 @@ Summarize tool events without printing full outputs:
       }'
 ```
 
-Find tool results that need triage:
+Build evidence rows for findings:
+
+Use the bundled evidence helper instead of manually joining `tool_call` and `tool_result` messages. Invoke it by the refainery skill's absolute path — a bare `scripts/...` will not resolve, because your shell cwd is the project under analysis, not the skill directory:
+
+```bash
+# point at wherever this skill is installed (it is the dir containing SKILL.md):
+skill=~/.codex/skills/refainery   # or ~/.claude/skills/refainery
+
+# emits compact JSONL, one row per flagged tool_result
+"$skill/scripts/evidence.sh" <id-or-path>
+
+# if step 1 built an updated binary, pass it explicitly
+MNEMONAI_BIN=/path/to/checkout/target/debug/mnemonai "$skill/scripts/evidence.sh" <id-or-path>
+```
+
+Each evidence row includes:
+
+- `session`: provider, id, path, cwd, timestamp, model, and parse errors.
+- `signal`, `confidence`, and `reasons`: classification details.
+- `call`: paired tool call metadata and truncated `tool_input`.
+- `result`: result index, status/error/exit code, and truncated text.
+- `context`: nearby previous user, previous assistant, and next assistant text.
+- `pairing.has_call`: whether a matching tool call was found.
+
+Use `evidence.sh` for final findings. It avoids brittle ad hoc jq joins and preserves the command/input needed to explain what the agent was trying to do.
+
+Find tool results that need quick triage:
 
 Run the bundled helper instead of retyping the jq (avoids copy/escape mistakes). Invoke it by the refainery skill's absolute path — a bare `scripts/...` will not resolve, because your shell cwd is the project under analysis, not the skill directory:
 
@@ -137,7 +163,7 @@ skill=~/.codex/skills/refainery   # or ~/.claude/skills/refainery
 MNEMONAI_BIN=/path/to/checkout/target/debug/mnemonai "$skill/scripts/triage.sh" <id-or-path>
 ```
 
-It runs `mnemonai show --json` and emits one object per flagged tool_result with `index`, `tool_call_id`, `signal`, `confidence`, `exit_code`, `tool_result_status`, `tool_result_error`, and a truncated `text`. The classification logic lives in `scripts/triage.jq` — read or edit that file rather than re-deriving the query.
+It runs `evidence.sh` and emits one object per flagged tool_result with `index`, `tool_call_id`, `signal`, `confidence`, `exit_code`, `tool_result_status`, `tool_result_error`, and a truncated `text`. The classification logic lives in `scripts/evidence.jq` — read or edit that file rather than re-deriving the query.
 
 `confirmed_failure` is driven by structured `tool_result_error`, `tool_result_status`, and `tool_result_exit_code` fields. `review_candidate` captures strong text-only signals such as tracebacks, line-leading `error:`/`fatal:` diagnostics, compiler errors, shell errors, sandbox denials, uppercase log-level `ERROR`/`FATAL`/`PANIC` lines, permission failures, missing files, and argument/usage errors. To reduce noise it gates `usage:` behind a co-occurring argument-error phrase, line-anchors the diagnostic signals, and skips git-style diff output — but it is still a heuristic over text, so a successful command whose output legitimately contains a traceback or an `error:` line (for example a log or file it printed) can surface. Treat `signal: "review_candidate"` as low-confidence until surrounding messages confirm impact, and prefer surfacing a borderline result over silently dropping a real failure.
 

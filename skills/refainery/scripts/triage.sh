@@ -13,4 +13,14 @@ session="${1:?usage: triage.sh <session-id-or-path> [mnemonai-binary]}"
 bin="${2:-${MNEMONAI_BIN:-mnemonai}}"
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-"$bin" show "$session" --json | jq -f "$here/triage.jq"
+"$here/evidence.sh" "$session" "$bin" |
+  jq -c '{
+    index: .result.index,
+    tool_call_id: .result.tool_call_id,
+    signal,
+    confidence,
+    exit_code: .result.exit_code,
+    tool_result_status: .result.tool_result_status,
+    tool_result_error: .result.tool_result_error,
+    text: (.result.text | .[0:500])
+  }'

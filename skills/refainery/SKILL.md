@@ -15,7 +15,7 @@ Prefer `mnemonai` as the session source. Do not parse provider-specific session 
    - Resolve the binary once with `MNEMONAI_BIN="${MNEMONAI_BIN:-mnemonai}"` and use `"$MNEMONAI_BIN"` for every `mnemonai` command. Shell variables may not persist between commands in every agent, so keep each `mnemonai` call in the same shell as that assignment, or substitute the resolved absolute path (the installed `mnemonai`, or a checkout's `target/debug/mnemonai`) directly into later commands.
    - Run `"$MNEMONAI_BIN" list --json --since 7d --cwd . --limit 1` before starting analysis. Exit 0 with a JSON array confirms the binary supports JSON output plus the `--since` and `--cwd` scope flags this skill relies on.
    - Load one session with `"$MNEMONAI_BIN" show <id-or-path> --json` and confirm `messages[]` is ordered and carries the always-present trace fields `index`, `entry_index`, `tool_call_id`, and `tool_name`. The `tool_result_status`, `tool_result_exit_code`, and `tool_result_error` fields are best-effort: they appear only when the provider exposes them, so their absence is normal and is not a sign of an old binary.
-   - Rebuild only on a real version signal — the binary rejects `--json`, `--since`, or `--cwd`, or `"$MNEMONAI_BIN" --version` predates headless support. Then build an updated `mnemonai` from source in a temporary directory and set `MNEMONAI_BIN` to that checkout's `target/debug/mnemonai`. See `references/mnemonai-json.md` for the exact commands.
+   - Rebuild only on a real version signal — the binary rejects `--json`, `--since`, or `--cwd`, or `"$MNEMONAI_BIN" --version` is older than `0.12.3`. Then build an updated `mnemonai` from source in a temporary directory and set `MNEMONAI_BIN` to that checkout's `target/debug/mnemonai`. See `references/mnemonai-json.md` for the exact commands.
    - If a checkout cannot be built (no network, no toolchain), stop and report that the skill needs `mnemonai` headless JSON support.
 
 2. Define the scope from the user's request.
@@ -40,7 +40,7 @@ Prefer `mnemonai` as the session source. Do not parse provider-specific session 
    - Tool result has `tool_result_error: true`, a non-zero `tool_result_exit_code`, or a failing `tool_result_status`.
    - Command-like tool output reports a non-zero exit status, traceback, permission failure, missing command, missing file, invalid usage, or another explicit failure.
    - The agent claims success while the tool output shows failure (a silent wrong answer); treat this as a high-signal struggle.
-   - Treat generic words such as `error`, `failed`, or `invalid` as weak signals when the same output also reports exit code 0; those words often appear in source code, filenames, or documentation.
+   - Treat generic words such as `error`, `failed`, `invalid`, or `usage:` as weak signals when structured fields are absent. Do not count them as failures when `tool_result_error` is false, `tool_result_status` is successful, or the output reports exit code 0; those words often appear in help text, source code, filenames, or documentation.
    - The agent retries the same tool or command with small argument changes.
    - The agent abandons a tool path and switches to a different approach after failure.
    - The agent repeatedly searches or reads files without narrowing the problem.

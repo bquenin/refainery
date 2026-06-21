@@ -19,6 +19,7 @@ Medium-signal:
 - Agent switches approach immediately after a failed tool without explaining why.
 - Multiple formatter/linter/test loops converge only after trial and error.
 - Generic failure words appear in output with no structured status or exit code.
+- Shell portability mistakes recur, such as zsh special variables, unguarded globs, or GNU-only flags on macOS.
 
 Low-signal:
 
@@ -26,6 +27,7 @@ Low-signal:
 - Expected negative lookup, such as checking whether a file exists.
 - Provider transcript lacks enough output to judge success.
 - Words like `error`, `failed`, or `invalid` appear inside successful command output, source code, filenames, or documentation.
+- Help text contains words like `usage:` after a successful command.
 
 ## Root Cause Categories
 
@@ -58,6 +60,7 @@ Use when a local rule or hook could prevent repetition:
 - Repo-specific validation before editing.
 - Commit/PR description policy enforcement.
 - Standard test/lint command discovery.
+- Shell portability rules for common agent mistakes, such as avoiding `path` in zsh, guarding globs, and preferring macOS-compatible flags.
 
 ### Environment/Access Gap
 
@@ -78,6 +81,7 @@ Use when the data and tools were adequate but the agent:
 - Failed to verify after editing.
 - Ignored an error.
 - Chose a brittle manual approach over an available structured API.
+- Used an edit/write tool before reading the target file when the provider requires a prior read.
 
 ### Provider/Extraction Gap
 

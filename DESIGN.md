@@ -17,6 +17,10 @@ refainery/
       references/
         mnemonai-json.md
         failure-taxonomy.md
+      scripts/
+        evidence.jq
+        evidence.sh
+        triage.sh
 ```
 
 The previous Python CLI implementation has been retired on this branch. The first implementation should stay skill-first and depend on `mnemonai` headless JSON output instead of duplicating provider parsers.
@@ -26,15 +30,17 @@ The previous Python CLI implementation has been retired on this branch. The firs
 ### mnemonai
 
 - Discover agent sessions across providers.
+- Search full session content and rank candidate conversations.
 - Normalize conversation summaries.
 - Export full session JSON with ordered messages.
+- Return focused message windows around content matches while preserving original indices.
 - Preserve tool-call IDs, result status/error fields, and raw provider payloads.
 
 ### refainery skill
 
-- Preflight the `mnemonai` binary for headless JSON support, building it from source into a temporary checkout when the installed binary is too old.
-- Select relevant sessions with `mnemonai list --json`.
-- Load sessions with `mnemonai show <id-or-path> --json`.
+- Preflight the `mnemonai` binary for headless list, search, and focused show support, building it from source into a temporary checkout when the installed binary is too old.
+- Use `mnemonai list --json` for unbiased time-window audits and `mnemonai search` for named topics.
+- Review candidates with `mnemonai show --grep`, then load unfiltered sessions for final evidence.
 - Reconstruct tool traces by pairing `tool_call` and `tool_result` messages.
 - Detect struggle patterns such as retries, failed statuses, parse failures, abandoned approaches, noisy outputs, and user corrections.
 - Triage detected signals into confirmed failures, review candidates, and benign/noise before writing findings.

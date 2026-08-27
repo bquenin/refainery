@@ -19,7 +19,7 @@ Medium-signal:
 - Agent switches approach immediately after a failed tool without explaining why.
 - Multiple formatter/linter/test loops converge only after trial and error.
 - Generic failure words appear in output with no structured status or exit code.
-- Shell portability mistakes recur, such as zsh special variables, unguarded globs, or GNU-only flags on macOS.
+- Shell mistakes recur, such as zsh-isms written into bash scripts, unguarded globs, or BSD/macOS-only flags (`date -v`, `sed -i ''`, `md5 -q`) used on a GNU/Linux box.
 
 Low-signal:
 
@@ -70,8 +70,8 @@ Use when a local rule or hook could prevent repetition:
 - Repo-specific validation before editing.
 - Commit/PR description policy enforcement.
 - Standard test/lint command discovery.
-- Shell portability rules for common agent mistakes, such as avoiding `path` in zsh, guarding globs, and preferring macOS-compatible flags.
-- When shell portability recurs, recommend a baseline rule: avoid GNU-only flags on macOS, quote globs, do not use `path` as a variable name in zsh, use `mktemp` for temp files, and prefer `rg` or portable POSIX commands.
+- Shell rules for common agent mistakes, such as guarding globs and using the GNU flag forms the local environment actually provides.
+- When shell mistakes recur, recommend a baseline rule: write plain bash (not zsh), use GNU flag forms (`date -d`, `sed -i`, `md5sum`) rather than the BSD/macOS equivalents, quote globs, use `mktemp` for temp files, and prefer `rg` or portable POSIX commands.
 
 ### Environment/Access Gap
 
